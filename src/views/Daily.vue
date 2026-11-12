@@ -27,7 +27,7 @@
           </div>
 
           <div class="mine-cards">
-            <div v-for="report in myReports" :key="report.id" class="mine-card">
+            <div v-for="report in myReports" :key="report.id" class="mine-card" @click="openCard(report)">
               <div class="mine-card-top">
                 <div class="mine-project">
                   <a-icon type="project" />
@@ -67,14 +67,14 @@
               <div class="mine-card-foot">
                 <div class="mine-actions">
                   <template v-if="report.frozen">
-                    <a-button size="small" @click="openReport(report, 'view')">查看</a-button>
+                    <a-button size="small" @click.stop="openReport(report, 'view')">查看</a-button>
                   </template>
                   <template v-else-if="report.status === '已提交'">
-                    <a-button size="small" type="primary" @click="openReport(report, 'mine')">修改并提交</a-button>
-                    <a-button size="small" @click="openReport(report, 'view')">查看</a-button>
+                    <a-button size="small" type="primary" @click.stop="openReport(report, 'mine')">修改并提交</a-button>
+                    <a-button size="small" @click.stop="openReport(report, 'view')">查看</a-button>
                   </template>
                   <template v-else>
-                    <a-button size="small" type="primary" @click="openReport(report, 'mine')">填写日报</a-button>
+                    <a-button size="small" type="primary" @click.stop="openReport(report, 'mine')">填写日报</a-button>
                   </template>
                 </div>
               </div>
@@ -528,6 +528,10 @@ export default {
       }
       this.adminReason = ''
       this.reportDrawerVisible = true
+    },
+    openCard (report) {
+      if (report.frozen) return this.openReport(report, 'view')
+      return this.openReport(report, 'mine')
     },
     validateReport () {
       if (this.reportForm.attend === null || typeof this.reportForm.attend === 'undefined') {
