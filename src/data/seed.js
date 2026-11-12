@@ -609,7 +609,7 @@ const SUGGESTION_SEED = [
   },
   {
     title: '优化日报填报字段，减少重复录入',
-    flow: '总部人员服务项目日报填报',
+    flow: '总部人员服务诉求日报填报',
     desc: '日报中项目层面服务需求与诉求进展存在重复填写，建议按项目自动带出诉求清单，减少手工录入工作量。',
     proposerId: 'P03',
     deptId: 'D14',
@@ -1203,11 +1203,8 @@ function buildReports (relations, appeals) {
         workContent: '',
         newIssues: '',
         status,
-        checkStatus: '待校核',
         frozen: day !== today,
         submitTime: '',
-        checkTime: '',
-        checker: '',
         feedbacks: [],
         revisions: []
       }
@@ -1223,13 +1220,6 @@ function buildReports (relations, appeals) {
 
       if (status === '已提交') {
         report.submitTime = `${day} ${String(8 + Math.floor(hash(`${key}|hour`) * 8)).padStart(2, '0')}:${String(Math.floor(hash(`${key}|min`) * 60)).padStart(2, '0')}`
-        if (day !== today) {
-          if (hash(`${key}|check`) < 0.7) {
-            report.checkStatus = '已校核'
-            report.checkTime = dayValue(-Math.max(0, Math.round((new Date(today) - new Date(day)) / 86400000) - 1), '09:40')
-            report.checker = '秦岚'
-          }
-        }
       }
 
       feedbackable
@@ -1268,7 +1258,6 @@ function buildReports (relations, appeals) {
     todayOne.workContent = '上午与项目班子核对施工许可办理后的渣土准运证、土场落实及桩基检测安排，下午协调检测单位确认小应变检测范围。'
     todayOne.newIssues = '项目提出渣土准运证办理需总部协调属地城管部门，已登记、待评估后转诉求。'
     todayOne.submitTime = `${today} 09:18`
-    todayOne.checkStatus = '待校核'
     todayOne.feedbacks.forEach(fb => {
       if (fb.appealId === 'SQ20260001') {
         fb.type = '有新进展'
@@ -1289,17 +1278,14 @@ function buildReports (relations, appeals) {
     todayTwo.feedbacks.forEach(fb => { fb.type = ''; fb.content = '' })
   }
 
-  // 一项已冻结日报由企划管理员修订，保留修订历史并标记需重新校核
+  // 一项已冻结日报由企划管理员修订，保留修订历史
   const revised = reports.find(r => r.personId === 'P01' && r.projectId === 'J01' && r.date === days[days.length - 2])
   if (revised) {
     const before = revised.workContent
     revised.status = '已提交'
-    revised.checkStatus = '需重新校核'
     revised.attend = true
     revised.workContent = `${before}补充：已完成与业主的沟通纪要整理，明确下周现场检查安排。`
     revised.submitTime = `${revised.date} 09:05`
-    revised.checkTime = dayValue(0, '08:35')
-    revised.checker = '秦岚'
     revised.revisions = [{
       time: dayValue(0, '08:35'),
       operator: '秦岚',

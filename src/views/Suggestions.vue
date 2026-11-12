@@ -19,11 +19,6 @@
             <a-select-option value="待回复">待回复</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="建议状态">
-          <a-select v-model="filters.status" placeholder="全部" allow-clear style="width: 120px">
-            <a-select-option v-for="s in ['待确认', '已回复', '已归档', '已退回']" :key="s" :value="s">{{ s }}</a-select-option>
-          </a-select>
-        </a-form-item>
         <a-form-item label="提出日期">
           <a-range-picker v-model="filters.dateRange" style="width: 230px" />
         </a-form-item>
@@ -69,7 +64,6 @@
         <span v-else class="muted">{{ record.status === '已退回' ? '已退回' : '待部门确认' }}</span>
       </div>
       <div slot="createdAt" slot-scope="text">{{ (text || '').slice(0, 10) }}</div>
-      <div slot="status" slot-scope="text"><status-tag :status="text" /></div>
       <div slot="action" slot-scope="text, record" class="table-actions">
         <template v-if="record.status === '待确认' || record.status === '已回复'">
           <a class="link-btn" @click="openFlow(record)">流程办理</a>
@@ -209,7 +203,7 @@
           </a-form-model>
           <a-form-model v-else :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
             <a-form-model-item label="归档意见" required>
-              <a-textarea v-model="flowForm.archiveOpinion" :rows="3" placeholder="填写归档意见，确认后建议状态变为已归档" />
+              <a-textarea v-model="flowForm.archiveOpinion" :rows="3" placeholder="填写归档意见，确认后完成企划归档" />
             </a-form-model-item>
           </a-form-model>
         </template>
@@ -235,7 +229,6 @@
       <template v-if="current">
         <div class="detail-head">
           <div class="detail-title">{{ current.title }}</div>
-          <status-tag :status="current.status" />
         </div>
         <div class="detail-grid">
           <div class="detail-item"><span class="detail-label">建议编号</span><span class="detail-value">{{ current.id }}</span></div>
@@ -287,6 +280,10 @@
             <div class="detail-item"><span class="detail-label">归档时间</span><span class="detail-value">{{ current.archivedAt }}</span></div>
           </div>
         </div>
+        <div v-else class="drawer-section">
+          <div class="drawer-section-title">企划归档意见</div>
+          <div class="empty-hint">待企划部填写</div>
+        </div>
       </template>
       <template slot="footer">
         <a-button @click="detailVisible = false">关闭</a-button>
@@ -308,8 +305,8 @@ export default {
   components: { StatusTag, FileUploader },
   data () {
     return {
-      filters: { deptId: undefined, proposerId: undefined, adopt: undefined, status: undefined, dateRange: null, keyword: '' },
-      applied: { deptId: undefined, proposerId: undefined, adopt: undefined, status: undefined, dateRange: null, keyword: '' },
+      filters: { deptId: undefined, proposerId: undefined, adopt: undefined, dateRange: null, keyword: '' },
+      applied: { deptId: undefined, proposerId: undefined, adopt: undefined, dateRange: null, keyword: '' },
       pagination: { pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
       formVisible: false,
       form: { deptId: undefined, title: '', flow: '', desc: '', confirmerIds: [], attachments: [] },
@@ -343,7 +340,6 @@ export default {
       let rows = this.$store.db.suggestions.slice()
       if (f.deptId) rows = rows.filter(s => s.deptId === f.deptId)
       if (f.proposerId) rows = rows.filter(s => s.proposerId === f.proposerId)
-      if (f.status) rows = rows.filter(s => s.status === f.status)
       if (f.adopt) {
         if (f.adopt === '待回复') rows = rows.filter(s => !(s.confirmers || []).some(c => c.reply))
         else rows = rows.filter(s => (s.confirmers || []).some(c => c.reply && c.reply.adopt === f.adopt))
@@ -373,7 +369,6 @@ export default {
         { title: '主责部门', dataIndex: 'deptName', width: 130 },
         { title: '确认负责人', dataIndex: 'confirmers', width: 90, scopedSlots: { customRender: 'confirmers' } },
         { title: '回复意见', dataIndex: 'reply', width: 190, scopedSlots: { customRender: 'reply' } },
-        { title: '建议状态', dataIndex: 'status', width: 82, scopedSlots: { customRender: 'status' } },
         { title: '提出时间', dataIndex: 'createdAt', width: 100, scopedSlots: { customRender: 'createdAt' } },
         { title: '操作', width: 120, scopedSlots: { customRender: 'action' } }
       ]
@@ -385,7 +380,7 @@ export default {
       this.pagination = { ...this.pagination, current: 1 }
     },
     reset () {
-      this.filters = { deptId: undefined, proposerId: undefined, adopt: undefined, status: undefined, dateRange: null, keyword: '' }
+      this.filters = { deptId: undefined, proposerId: undefined, adopt: undefined, dateRange: null, keyword: '' }
       this.applied = { ...this.filters }
     },
     openCreate () {

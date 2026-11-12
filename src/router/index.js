@@ -14,7 +14,7 @@ export const MODULE_MENUS = [
   { path: '/relations', title: '帮扶关系管理', icon: 'apartment', desc: '总部人员与项目帮扶关系配置及联合审批' },
   { path: '/works', title: '部门重点工作', icon: 'profile', desc: '按部门批量建单，逐项填报执行情况与销项' },
   { path: '/appeals', title: '项目诉求办理', icon: 'message', desc: '按项目登记诉求，跟踪办理并独立销项' },
-  { path: '/daily', title: '日报管理', icon: 'form', desc: '项目日报填报、校核、监控与周度汇总' },
+  { path: '/daily', title: '日报管理', icon: 'form', desc: '诉求日报填报、全部日报与自然周汇总' },
   { path: '/suggestions', title: '制度改进建议', icon: 'bulb', desc: '制度流程建议提出、部门确认与归档' }
 ]
 

@@ -66,7 +66,7 @@
       :pagination="pagination"
       row-key="id"
       size="middle"
-      :scroll="{ x: 1540 }"
+      :scroll="{ x: 1410 }"
     >
       <div slot="period" slot-scope="text, record" class="period-cell">
         <div>{{ record.startDate }}</div>
@@ -183,15 +183,6 @@
                 <a-radio value="主责">主责</a-radio>
                 <a-radio value="协同">协同</a-radio>
               </a-radio-group>
-            </a-form-model-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-model-item label="企划业务经办人" required>
-              <a-select v-model="form.plannerId" placeholder="请选择" style="width: 100%">
-                <a-select-option v-for="p in plannerOptions" :key="p.id" :value="p.id">
-                  {{ p.name }}（{{ deptName(p.deptId) }}）
-                </a-select-option>
-              </a-select>
             </a-form-model-item>
           </a-col>
           <a-col :span="12">
@@ -319,7 +310,6 @@
           <div class="detail-item"><span class="detail-label">服务项目</span><span class="detail-value">{{ current.projectName }}</span></div>
           <div class="detail-item"><span class="detail-label">项目经理</span><span class="detail-value">{{ current.projectManager }}</span></div>
           <div class="detail-item"><span class="detail-label">帮扶角色</span><span class="detail-value">{{ current.role }}</span></div>
-          <div class="detail-item"><span class="detail-label">企划经办人</span><span class="detail-value">{{ current.plannerName }}</span></div>
           <div class="detail-item full"><span class="detail-label">有效期</span><span class="detail-value">{{ current.startDate }} 至 {{ current.endDate || '长期' }}</span></div>
           <div class="detail-item full"><span class="detail-label">配置说明</span><span class="detail-value">{{ current.remark || '—' }}</span></div>
         </div>
@@ -355,7 +345,7 @@ export default {
       formMode: 'create',
       editingId: null,
       saving: false,
-      form: { personId: undefined, projectId: undefined, role: '主责', plannerId: 'P17', startDate: null, endDate: null, remark: '' },
+      form: { personId: undefined, projectId: undefined, role: '主责', startDate: null, endDate: null, remark: '' },
       adjustVisible: false,
       adjustForm: { id: '', personName: '', projectName: '', role: '主责', startDate: null, endDate: null, remark: '' },
       invalidateVisible: false,
@@ -377,9 +367,6 @@ export default {
     },
     departments () {
       return this.$store.db.departments
-    },
-    plannerOptions () {
-      return this.$store.staffOfDept('D14')
     },
     statusOptions () {
       return ['草稿', '待审批', '已生效', '已驳回', '已失效']
@@ -420,7 +407,6 @@ export default {
         { title: '项目经理联系方式', dataIndex: 'projectId', key: 'managerPhone', width: 128, customRender: id => this.projectManagerPhone(id) },
         { title: '帮扶角色', dataIndex: 'role', width: 70, align: 'center' },
         { title: '有效期', dataIndex: 'startDate', width: 132, scopedSlots: { customRender: 'period' } },
-        { title: '企划经办人', dataIndex: 'plannerName', width: 84 },
         { title: '关系状态', dataIndex: 'status', width: 86, scopedSlots: { customRender: 'status' } },
         { title: '操作', width: 120, scopedSlots: { customRender: 'action' } }
       ]
@@ -485,7 +471,6 @@ export default {
         personId: undefined,
         projectId: undefined,
         role: '主责',
-        plannerId: 'P17',
         startDate: moment(),
         endDate: null,
         remark: ''
@@ -499,7 +484,6 @@ export default {
         personId: record.personId,
         projectId: record.projectId,
         role: record.role,
-        plannerId: record.plannerId,
         startDate: record.startDate ? moment(record.startDate) : null,
         endDate: record.endDate ? moment(record.endDate) : null,
         remark: record.remark || ''
@@ -520,7 +504,6 @@ export default {
             role: this.form.role,
             startDate: fmtDate(this.form.startDate),
             endDate: fmtDate(this.form.endDate),
-            plannerId: this.form.plannerId,
             remark: this.form.remark
           })
           if (submit) this.$store.submitRelations([this.editingId])
@@ -532,7 +515,6 @@ export default {
             role: this.form.role,
             startDate: fmtDate(this.form.startDate),
             endDate: fmtDate(this.form.endDate),
-            plannerId: this.form.plannerId,
             remark: this.form.remark
           })
           if (res.skipped.length) {

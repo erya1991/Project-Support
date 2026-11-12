@@ -19,7 +19,6 @@
         </a-form-item>
         <a-form-item label="办理状态">
           <a-select v-model="filters.status" placeholder="全部状态" allow-clear style="width: 130px">
-            <a-select-option value="在办">在办（未销项）</a-select-option>
             <a-select-option v-for="s in statusOptions" :key="s" :value="s">{{ s }}</a-select-option>
           </a-select>
         </a-form-item>
@@ -91,6 +90,10 @@
           <a-divider type="vertical" />
           <a class="link-btn" @click="openEdit(record)">编辑</a>
         </template>
+        <template v-if="canDelete(record)">
+          <a-divider type="vertical" />
+          <a class="link-btn danger" @click="deleteAppeal(record)">删除</a>
+        </template>
       </div>
     </a-table>
 
@@ -142,7 +145,7 @@
             </a-form-model-item>
           </a-col>
           <a-col :span="12">
-            <a-form-model-item label="主责部门">
+            <a-form-model-item label="主责部门" required>
               <div class="readonly-box">{{ formDeptName || '随承办人带出' }}</div>
             </a-form-model-item>
           </a-col>
@@ -237,10 +240,10 @@
           <div class="detail-item"><span class="detail-label">诉求来源</span><span class="detail-value">{{ current.source }}</span></div>
           <div class="detail-item"><span class="detail-label">登记时间</span><span class="detail-value">{{ current.createdAt }}</span></div>
           <div class="detail-item"><span class="detail-label">协同部门</span><span class="detail-value">{{ current.coDepts && current.coDepts.length ? current.coDepts.map(deptName).join('、') : '无' }}</span></div>
+          <div class="detail-item"><span class="detail-label">发起人</span><span class="detail-value">{{ current.creatorName }}</span></div>
           <div class="detail-item"><span class="detail-label">最近日报</span><span class="detail-value">{{ current.latestReportDate || '—' }}</span></div>
           <div class="detail-item full"><span class="detail-label">具体描述</span><span class="detail-value">{{ current.desc }}</span></div>
           <div class="detail-item full"><span class="detail-label">推进计划</span><span class="detail-value">{{ current.plan }}</span></div>
-          <div class="detail-item full"><span class="detail-label">最新进展</span><span class="detail-value">{{ current.latestProgress }}</span></div>
           <div class="detail-item full">
             <span class="detail-label">登记附件</span>
             <span class="detail-value">
@@ -268,7 +271,7 @@
             <div slot="attend" slot-scope="text">
               <a-tag :color="text === true ? 'green' : (text === false ? 'orange' : '')">{{ text === true ? '是' : (text === false ? '否' : '未填') }}</a-tag>
             </div>
-            <div slot="checkStatus" slot-scope="text"><status-tag :status="text" /></div>
+            <div slot="submitTime" slot-scope="text">{{ text || '—' }}</div>
             <div slot="action" slot-scope="text, record">
               <a class="link-btn" @click="openReportView(record)">查看</a>
             </div>
@@ -298,6 +301,7 @@
       </template>
       <template slot="footer">
         <a-button @click="detailVisible = false">关闭</a-button>
+        <a-button v-if="current && canDelete(current)" danger @click="deleteAppeal(current)">删除诉求</a-button>
         <a-button v-if="current && current.status === '办理中'" @click="openEdit(current)">编辑</a-button>
         <a-button v-if="current && current.status === '办理中'" type="primary" @click="openClose(current)">申请销项</a-button>
       </template>
@@ -315,8 +319,8 @@
           <div class="detail-item"><span class="detail-label">填报人</span><span class="detail-value">{{ reportViewRecord.personName }}</span></div>
           <div class="detail-item"><span class="detail-label">项目</span><span class="detail-value">{{ reportViewRecord.projectName }}</span></div>
           <div class="detail-item"><span class="detail-label">是否到岗</span><span class="detail-value">{{ reportViewRecord.attend === true ? '是' : (reportViewRecord.attend === false ? '否' : '未填') }}</span></div>
-          <div class="detail-item"><span class="detail-label">校核状态</span><span class="detail-value"><status-tag :status="reportViewRecord.checkStatus" /></span></div>
           <div class="detail-item"><span class="detail-label">提交时间</span><span class="detail-value">{{ reportViewRecord.submitTime || '—' }}</span></div>
+          <div class="detail-item full"><span class="detail-label">对应诉求事项</span><span class="detail-value">{{ reportViewRecord.appealTitle }}</span></div>
           <div class="detail-item full"><span class="detail-label">当日工作开展情况</span><span class="detail-value">{{ reportViewRecord.workContent || '—' }}</span></div>
           <div class="detail-item full"><span class="detail-label">今日新增问题</span><span class="detail-value">{{ reportViewRecord.newIssues || '无' }}</span></div>
         </div>
@@ -370,7 +374,7 @@ export default {
         keyword: ''
       },
       pagination: { pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
-      statusOptions: ['办理中', '销项审批中', '已销项'],
+      statusOptions: ['办理中', '销项审批中', '已销项', '已删除'],
       sourceOptions: ['工程部梳理', '项目反馈', '日报', '现场', '其他'],
       formVisible: false,
       formMode: 'create',
@@ -427,13 +431,15 @@ export default {
       const f = this.applied
       const today = todayStr()
       let rows = this.$store.db.appeals.slice()
+      if (f.status === '已删除') {
+        rows = rows.filter(a => a.status === '已删除')
+      } else {
+        rows = rows.filter(a => a.status !== '已删除')
+        if (f.status) rows = rows.filter(a => a.status === f.status)
+      }
       if (f.projectId) rows = rows.filter(a => a.projectId === f.projectId)
       if (f.deptId) rows = rows.filter(a => a.deptId === f.deptId)
       if (f.personId) rows = rows.filter(a => a.personId === f.personId)
-      if (f.status) {
-        if (f.status === '在办') rows = rows.filter(a => a.status !== '已销项')
-        else rows = rows.filter(a => a.status === f.status)
-      }
       if (f.dueRange && f.dueRange.length === 2) {
         const start = fmtDate(f.dueRange[0])
         const end = fmtDate(f.dueRange[1])
@@ -471,9 +477,9 @@ export default {
         { title: '填报人', dataIndex: 'personName', width: 68 },
         { title: '项目', dataIndex: 'projectName', width: 120 },
         { title: '到岗', dataIndex: 'attend', width: 48, align: 'center', scopedSlots: { customRender: 'attend' } },
-        { title: '当日工作开展情况摘要', dataIndex: 'workContent', width: 220, scopedSlots: { customRender: 'workSummary' } },
-        { title: '今日新增问题', dataIndex: 'newIssues', width: 120, scopedSlots: { customRender: 'issues' } },
-        { title: '校核状态', dataIndex: 'checkStatus', width: 80, scopedSlots: { customRender: 'checkStatus' } },
+        { title: '当日工作开展情况摘要', dataIndex: 'workContent', width: 200, scopedSlots: { customRender: 'workSummary' } },
+        { title: '今日新增问题', dataIndex: 'newIssues', width: 110, scopedSlots: { customRender: 'issues' } },
+        { title: '提交时间', dataIndex: 'submitTime', width: 112, scopedSlots: { customRender: 'submitTime' } },
         { title: '操作', width: 56, align: 'center', scopedSlots: { customRender: 'action' } }
       ]
     },
@@ -630,6 +636,26 @@ export default {
       this.closeReason = ''
       this.closeAttachments = []
       this.closeVisible = true
+    },
+    canDelete (record) {
+      return !!record && record.status === '办理中' && record.creatorId === this.$store.currentUser.id
+    },
+    deleteAppeal (record) {
+      if (!this.canDelete(record)) return this.$message.warning('仅诉求发起人可删除办理中诉求')
+      this.$confirm({
+        title: '删除项目诉求',
+        content: `确认删除“${record.title}”？删除后移出有效清单，已提交日报保留可查，且不再生成后续日报任务。`,
+        okText: '删除',
+        okType: 'danger',
+        cancelText: '取消',
+        onOk: () => {
+          const res = this.$store.deleteAppeal(record.id)
+          if (!res.ok) return this.$message.error(res.message)
+          if (this.current && this.current.id === record.id) this.detailVisible = false
+          this.$message.success('诉求已删除')
+          this.query()
+        }
+      })
     },
     submitClose () {
       if (!this.closeReason.trim()) return this.$message.warning('请填写办结说明')

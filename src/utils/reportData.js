@@ -60,6 +60,7 @@ export function buildAppealList (db, projectId) {
   const deptOrder = deptOrderMap(db)
   const projectOrder = projectOrderMap(db)
   return db.appeals
+    .filter(a => a.status !== '已删除')
     .filter(a => !projectId || a.projectId === projectId)
     .slice()
     .sort((a, b) => {
@@ -122,7 +123,8 @@ function orderReports (db, reports) {
 }
 
 export function buildDailyReport (db, date) {
-  const all = db.dailyReports.filter(r => r.date === date)
+  const deleted = new Set(db.appeals.filter(a => a.status === '已删除').map(a => a.id))
+  const all = db.dailyReports.filter(r => !r.legacy && r.date === date && !deleted.has(r.appealId))
   const submitted = all.filter(r => r.status === '已提交')
   const absentRows = orderReports(db, submitted.filter(r => r.attend === false)).map(r => ({
     personName: r.personName,
@@ -155,15 +157,16 @@ export function buildDailyReport (db, date) {
   const expected = personIds.size
   const attended = attendedPersons.size
   const closed = db.appeals.filter(a => a.status === '已销项').length
-  const active = db.appeals.length - closed
-  const closeRate = db.appeals.length ? Math.round((closed / db.appeals.length) * 1000) / 10 : 0
+  const validAppeals = db.appeals.filter(a => a.status !== '已删除')
+  const active = validAppeals.length - closed
+  const closeRate = validAppeals.length ? Math.round((closed / validAppeals.length) * 1000) / 10 : 0
   const rate = expected ? Math.round((attended / expected) * 1000) / 10 : 0
   const servicePeople = new Set(rels.map(r => r.personId)).size
 
   const summary = [
     '情况汇总：',
     `1.人员到岗。本日报服务人员${servicePeople}人，应到岗${expected}人次，实际到岗${attended}人次，到岗率${rate}%。`,
-    `2.问题解决。截至目前，共计项目诉求${db.appeals.length}条，销项闭环${closed}条、推进解决中${active}条，销项率${closeRate}%。`,
+    `2.问题解决。截至目前，共计项目诉求${validAppeals.length}条，销项闭环${closed}条、推进解决中${active}条，销项率${closeRate}%。`,
     `3.日报填报。本日应填日报${all.length}份，已提交${submitted.length}份，未提交${all.length - submitted.length}份。`
   ].join('\n')
 
@@ -177,7 +180,8 @@ export function buildDailyReport (db, date) {
 }
 
 export function buildWeeklyReport (db, start, end) {
-  const reports = db.dailyReports.filter(r => r.date >= start && r.date <= end && r.status === '已提交')
+  const deleted = new Set(db.appeals.filter(a => a.status === '已删除').map(a => a.id))
+  const reports = db.dailyReports.filter(r => !r.legacy && r.date >= start && r.date <= end && !deleted.has(r.appealId) && r.status === '已提交')
   const absentRows = orderReports(db, reports.filter(r => r.attend === false)).map(r => ({
     personName: r.personName,
     deptName: r.deptName,
@@ -209,7 +213,7 @@ export function buildWeeklyReport (db, start, end) {
   const attended = attendedSet.size
   const rate = expected ? Math.round((attended / expected) * 1000) / 10 : 0
   const closed = db.appeals.filter(a => a.closeRequest && a.closeRequest.archivedAt && a.closeRequest.archivedAt.slice(0, 10) >= start && a.closeRequest.archivedAt.slice(0, 10) <= end).length
-  const active = db.appeals.filter(a => a.status !== '已销项').length
+  const active = db.appeals.filter(a => a.status === '办理中' || a.status === '销项审批中').length
 
   const summary = [
     '情况汇总：',

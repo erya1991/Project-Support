@@ -1,7 +1,7 @@
 import moment from 'moment'
 import { isFrozen } from '../utils/date'
 
-export const SCHEMA_VERSION = 6
+export const SCHEMA_VERSION = 7
 
 const REGION_COMPANIES = [
   [/上海|江苏|浙江|安徽/, '华东分公司'],
@@ -50,18 +50,24 @@ function normalizeWork (work) {
         id: e.id || `PE${work.id}${e.projectId}`,
         projectId: e.projectId,
         projectName: e.projectName,
-        personId: e.personId,
-        personName: e.personName,
         content: e.content || '',
         attachments: e.attachments || [],
         updatedAt: e.updatedAt || work.createdAt
       }))
   }
+  work.projectExecutions.forEach(e => {
+    delete e.personId
+    delete e.personName
+  })
   if (work.closeRequest) {
     if (!work.closeRequest.overallContent) work.closeRequest.overallContent = work.overallContent
     if (!Array.isArray(work.closeRequest.projectExecutions)) {
       work.closeRequest.projectExecutions = JSON.parse(JSON.stringify(work.projectExecutions))
     }
+    work.closeRequest.projectExecutions.forEach(e => {
+      delete e.personId
+      delete e.personName
+    })
   }
   return work
 }
@@ -136,6 +142,72 @@ function normalizeSuggestion (suggestion, db) {
   return suggestion
 }
 
+function uniqueReportId (base, used) {
+  let id = base
+  let index = 2
+  while (used.has(id)) {
+    id = `${base}-${index}`
+    index += 1
+  }
+  used.add(id)
+  return id
+}
+
+function expandDailyReports (db) {
+  const used = new Set()
+  const expanded = []
+  const appeals = db.appeals || []
+  ;(db.dailyReports || []).forEach(source => {
+    let ids = Array.isArray(source.appealIds) ? source.appealIds.slice() : []
+    if (!Array.isArray(source.appealIds)) {
+      ids = [...new Set((source.feedbacks || []).map(f => f.appealId).filter(Boolean))]
+    }
+    ids = [...new Set(ids)].filter(id => appeals.some(a => a.id === id))
+    const base = JSON.parse(JSON.stringify(source))
+    delete base.feedbacks
+    delete base.appealIds
+    delete base.checkStatus
+    delete base.checkTime
+    delete base.checker
+    delete base.checkRemark
+
+    if (!ids.length) {
+      base.legacy = true
+      base.appealId = ''
+      base.appealTitle = ''
+      base.appealDesc = ''
+      base.status = base.status === '已提交' ? '已提交' : '未填写'
+      if (base.status !== '已提交') {
+        base.submitTime = ''
+        base.revisions = []
+      }
+      base.frozen = isFrozen(base.date)
+      base.id = uniqueReportId(base.id, used)
+      expanded.push(base)
+      return
+    }
+
+    ids.forEach(id => {
+      const appeal = appeals.find(a => a.id === id)
+      const copy = JSON.parse(JSON.stringify(base))
+      copy.appealId = id
+      copy.appealTitle = appeal.title || ''
+      copy.appealDesc = appeal.desc || ''
+      copy.projectId = appeal.projectId || copy.projectId
+      copy.projectName = appeal.projectName || copy.projectName
+      copy.projectNeeds = `${appeal.title || ''}；${appeal.desc || ''}`
+      copy.legacy = false
+      copy.status = source.status === '已提交' ? '已提交' : '未填写'
+      copy.submitTime = copy.status === '已提交' ? (source.submitTime || '') : ''
+      copy.revisions = copy.status === '已提交' ? (source.revisions || []) : []
+      copy.frozen = isFrozen(copy.date)
+      copy.id = uniqueReportId(ids.length === 1 ? source.id : `${source.id}-${id}`, used)
+      expanded.push(copy)
+    })
+  })
+  db.dailyReports = expanded
+}
+
 export function migrateDb (db) {
   if (!db) return db
   if (db.schemaVersion === SCHEMA_VERSION) return db
@@ -170,6 +242,12 @@ export function migrateDb (db) {
       a.progress = []
     }
     if (!a.acceptedAt) a.acceptedAt = a.createdAt || ''
+    if (!a.creatorId) {
+      const creator = (db.people || [])[0] || {}
+      a.creatorId = creator.id || 'P01'
+      a.creatorName = creator.name || '工程部经办人'
+    }
+    if (a.status === '已删除' && !a.deletedAt) a.deletedAt = a.updatedAt || a.createdAt || ''
     if (!Array.isArray(a.progress)) a.progress = []
     if (a.latestProgress) {
       a.latestProgress = a.latestProgress
@@ -187,22 +265,11 @@ export function migrateDb (db) {
     })
   })
 
-  ;(db.dailyReports || []).forEach(report => {
-    if (!Array.isArray(report.appealIds)) {
-      report.appealIds = [...new Set((report.feedbacks || []).map(f => f.appealId).filter(Boolean))]
-    }
-    if (report.feedbacks !== undefined) delete report.feedbacks
-    report.frozen = isFrozen(report.date)
-    if (!report.projectNeeds) {
-      const project = (db.projects || []).find(p => p.id === report.projectId)
-      report.projectNeeds = project ? project.needs : ''
-    }
-  })
+  expandDailyReports(db)
 
   ;(db.appeals || []).forEach(appeal => {
-    if (appeal.latestReportDate) return
     const latest = (db.dailyReports || [])
-      .filter(r => r.status === '已提交' && (r.appealIds || []).indexOf(appeal.id) > -1)
+      .filter(r => r.status === '已提交' && r.appealId === appeal.id)
       .sort((a, b) => b.date.localeCompare(a.date))[0]
     if (latest) appeal.latestReportDate = latest.date
   })

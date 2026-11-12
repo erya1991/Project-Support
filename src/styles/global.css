@@ -826,6 +826,18 @@ a {
   font-size: 12px;
 }
 
+.required-mark {
+  color: #f5222d;
+  margin-right: 4px;
+  font-family: SimSun, sans-serif;
+}
+
+.required-col .ant-table-column-title::after {
+  content: ' *';
+  color: #f5222d;
+  font-family: SimSun, sans-serif;
+}
+
 .ant-tag {
   font-size: 11.5px;
   line-height: 18px;

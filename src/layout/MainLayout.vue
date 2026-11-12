@@ -273,7 +273,7 @@ export default {
       const t = this.todoData
       if (t.dailyCount) {
         list.push({
-          title: `您还有 ${t.dailyCount} 份项目日报待提交`,
+          title: `您还有 ${t.dailyCount} 份诉求日报待提交`,
           desc: '请于当日24:00前完成填写，次日00:00自动冻结。',
           path: '/daily',
           time: '今日'
@@ -306,7 +306,7 @@ export default {
       if (frozenCount) {
         list.push({
           title: '历史日报已冻结',
-          desc: '历史日期的项目日报已按北京时间次日00:00自动冻结，个人不可修改，如需修订请联系企划部管理员。',
+          desc: '历史日期的日报已按北京时间次日00:00自动冻结，个人不可修改，如需修订请联系企划部管理员。',
           path: '/daily',
           time: '系统提醒',
           icon: 'lock'
@@ -319,7 +319,7 @@ export default {
       const today = todayStr()
       const dailyItems = this.$store.db.dailyReports
         .filter(r => r.date === today && r.personId === this.user.id && r.status !== '已提交')
-        .map(r => ({ title: `${r.projectName} 项目日报`, desc: `${r.date} · ${r.status}`, path: '/daily' }))
+        .map(r => ({ title: `${r.projectName} · ${r.appealTitle}`, desc: `${r.date} · ${r.status}`, path: '/daily' }))
       const appealItems = this.$store.db.appeals
         .filter(a => a.personId === this.user.id && a.status === '办理中')
         .map(a => ({ title: a.title, desc: `${a.projectName} · 完成时限 ${a.dueDate}`, path: '/appeals' }))

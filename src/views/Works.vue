@@ -357,10 +357,6 @@
                     >{{ p.name }}</a-select-option>
                   </a-select>
                 </div>
-                <div slot="personCell" slot-scope="text, record">
-                  <span v-if="record.personName">{{ record.personName }}</span>
-                  <span v-else class="danger-text">未匹配</span>
-                </div>
                 <div slot="contentCell" slot-scope="text, record">
                   <a-textarea v-model="record.content" :rows="2" :max-length="500" placeholder="填写该项目落实情况" />
                 </div>
@@ -637,9 +633,8 @@ export default {
     projectExecColumns () {
       return [
         { title: '序号', width: 50, align: 'center', customRender: (text, record, index) => index + 1 },
-        { title: '关联项目', width: 210, scopedSlots: { customRender: 'projectCell' } },
-        { title: '项目跟进人', width: 100, align: 'center', scopedSlots: { customRender: 'personCell' } },
-        { title: '落实情况', width: 310, scopedSlots: { customRender: 'contentCell' } },
+        { title: '关联项目', width: 220, scopedSlots: { customRender: 'projectCell' }, customHeaderCell: () => ({ class: 'required-col' }) },
+        { title: '落实情况', width: 360, scopedSlots: { customRender: 'contentCell' }, customHeaderCell: () => ({ class: 'required-col' }) },
         { title: '附件', width: 180, scopedSlots: { customRender: 'fileCell' } },
         { title: '操作', width: 60, align: 'center', scopedSlots: { customRender: 'deleteCell' } }
       ]
@@ -647,9 +642,8 @@ export default {
     projectViewColumns () {
       return [
         { title: '序号', width: 50, align: 'center', customRender: (text, record, index) => index + 1 },
-        { title: '关联项目', dataIndex: 'projectName', width: 210 },
-        { title: '项目跟进人', dataIndex: 'personName', width: 100, align: 'center' },
-        { title: '落实情况', dataIndex: 'content', width: 330, scopedSlots: { customRender: 'viewContent' } },
+        { title: '关联项目', dataIndex: 'projectName', width: 220 },
+        { title: '落实情况', dataIndex: 'content', width: 400, scopedSlots: { customRender: 'viewContent' } },
         { title: '附件', width: 170, scopedSlots: { customRender: 'viewFiles' } }
       ]
     },
@@ -690,9 +684,9 @@ export default {
     this.systems = this.$store.db.systems
     this.sheetItemColumns = [
       { title: '序号', dataIndex: '_key', width: 52, align: 'center', customRender: (text, record, index) => index + 1 },
-      { title: '重点工作', width: 280, scopedSlots: { customRender: 'titleCell' } },
-      { title: '工作牵头人', width: 120, scopedSlots: { customRender: 'leadCell' } },
-      { title: '完成时限', width: 150, scopedSlots: { customRender: 'dueCell' } },
+      { title: '重点工作', width: 280, scopedSlots: { customRender: 'titleCell' }, customHeaderCell: () => ({ class: 'required-col' }) },
+      { title: '工作牵头人', width: 120, scopedSlots: { customRender: 'leadCell' }, customHeaderCell: () => ({ class: 'required-col' }) },
+      { title: '完成时限', width: 150, scopedSlots: { customRender: 'dueCell' }, customHeaderCell: () => ({ class: 'required-col' }) },
       { title: '项目落实情况', width: 120, scopedSlots: { customRender: 'resultCell' } },
       { title: '存在问题', width: 180, scopedSlots: { customRender: 'problemCell' } },
       { title: '改进建议', width: 180, scopedSlots: { customRender: 'suggestionCell' } },
@@ -939,20 +933,6 @@ export default {
       this.workCurrent = null
       this.workDrawerMode = 'view'
     },
-    followerForProject (projectId) {
-      const work = this.workCurrent
-      if (!work) return null
-      const ids = [work.leadId, this.$store.currentUser.id]
-      for (const id of ids) {
-        const rel = this.$store.db.relations.find(r => r.status === '已生效' && r.personId === id && r.projectId === projectId)
-        if (rel) return this.$store.getPerson(id)
-      }
-      const existing = (work.projectExecutions || []).find(e => {
-        if (e.projectId !== projectId || !e.personId) return false
-        return this.$store.db.relations.some(r => r.status === '已生效' && r.personId === e.personId && r.projectId === projectId)
-      })
-      return existing ? this.$store.getPerson(existing.personId) : null
-    },
     initExecForm (work) {
       this.overallContent = work.overallContent || ''
       this.overallAttachments = (work.overallAttachments || []).slice()
@@ -960,8 +940,6 @@ export default {
         _key: e.id || `prow_${e.projectId}_${Math.random()}`,
         projectId: e.projectId,
         projectName: e.projectName,
-        personId: e.personId,
-        personName: e.personName,
         content: this.execDisplay(e),
         attachments: (e.attachments || []).slice()
       }))
@@ -971,8 +949,6 @@ export default {
         _key: `prow_${Date.now()}_${Math.random()}`,
         projectId: undefined,
         projectName: '',
-        personId: '',
-        personName: '',
         content: '',
         attachments: []
       })
@@ -986,21 +962,16 @@ export default {
     onProjectRowChange (index, projectId) {
       const row = this.projectRows[index]
       const project = this.$store.getProject(projectId)
-      const person = this.followerForProject(projectId)
       row.projectId = projectId
       row.projectName = project ? project.name : ''
-      row.personId = person ? person.id : ''
-      row.personName = person ? person.name : ''
-      if (!person) this.$message.warning('该项目与工作牵头人、填写人均无有效帮扶关系，请先配置关系')
     },
     saveExec () {
       const work = this.workCurrent
       if (!work) return
       if (!this.overallContent.trim()) return this.$message.warning('请填写总体执行情况')
-      const rows = this.projectRows.filter(row => row.projectId || row.content || (row.attachments && row.attachments.length))
+      const rows = this.projectRows
       for (let i = 0; i < rows.length; i++) {
         if (!rows[i].projectId) return this.$message.warning(`第 ${i + 1} 行请选择关联项目`)
-        if (!rows[i].personId) return this.$message.warning(`第 ${i + 1} 行项目跟进人未匹配到有效帮扶关系`)
         if (!rows[i].content.trim()) return this.$message.warning(`第 ${i + 1} 行请填写落实情况`)
       }
       const res = this.$store.saveWorkExecutions(work.id, {
@@ -1008,7 +979,6 @@ export default {
         overallAttachments: this.overallAttachments,
         projects: rows.map(row => ({
           projectId: row.projectId,
-          personId: row.personId,
           content: row.content,
           attachments: row.attachments
         }))

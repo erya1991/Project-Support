@@ -5,124 +5,65 @@
       <span class="section-extra">
         <span style="margin-right:6px;">统计日期</span>
         <a-date-picker v-model="statDate" size="small" :allow-clear="false" style="width: 138px; margin-right: 10px;" />
-        数据来源：帮扶关系、诉求台账、项目日报实时汇总
+        数据来源：帮扶关系、诉求台账、诉求日报实时汇总
       </span>
     </div>
 
-    <div class="stat-strip">
-      <div class="stat-cell clickable" @click="openAttendance">
-        <div class="stat-label"><a-icon type="team" /> 服务人员</div>
-        <div class="stat-value">{{ stats.serviceCount }}<small>人</small></div>
-      </div>
-      <div class="stat-cell clickable" @click="openAttendance">
-        <div class="stat-label"><a-icon type="login" /> 人员到岗</div>
-        <div class="stat-value blue">{{ stats.attendedCount }}<small>/ {{ stats.serviceCount }} 人</small></div>
-      </div>
-      <div class="stat-cell clickable" @click="goAppeals('')">
-        <div class="stat-label"><a-icon type="profile" /> 项目诉求总数</div>
-        <div class="stat-value">{{ stats.appealTotal }}<small>条</small></div>
-      </div>
-      <div class="stat-cell clickable" @click="goAppeals('办理中')">
-        <div class="stat-label"><a-icon type="clock-circle" /> 办理中诉求</div>
-        <div class="stat-value orange">{{ stats.processingCount }}<small>条</small></div>
-      </div>
-      <div class="stat-cell clickable" @click="goAppeals('销项审批中')">
-        <div class="stat-label"><a-icon type="audit" /> 销项审批中</div>
-        <div class="stat-value orange">{{ stats.closingCount }}<small>条</small></div>
-      </div>
-      <div class="stat-cell clickable" @click="goAppeals('已销项')">
-        <div class="stat-label"><a-icon type="check-circle" /> 已销项</div>
-        <div class="stat-value green">{{ stats.closedCount }}<small>条</small></div>
-      </div>
-      <div class="stat-cell clickable" @click="goAppeals('已销项')">
-        <div class="stat-label"><a-icon type="pie-chart" /> 销项率</div>
-        <div class="stat-value green">{{ stats.closeRate }}<small>%</small></div>
-      </div>
-      <div class="stat-cell clickable" @click="$router.push('/daily')">
-        <div class="stat-label"><a-icon type="form" /> 日报应填</div>
-        <div class="stat-value">{{ stats.dueCount }}<small>份</small></div>
-      </div>
-      <div class="stat-cell clickable" @click="$router.push('/daily')">
-        <div class="stat-label"><a-icon type="check" /> 日报已填</div>
-        <div class="stat-value blue">{{ stats.submittedCount }}<small>份</small></div>
-      </div>
-      <div class="stat-cell clickable" @click="$router.push('/daily')">
-        <div class="stat-label"><a-icon type="exclamation-circle" /> 日报未填</div>
-        <div class="stat-value red">{{ stats.unfilledCount }}<small>份</small></div>
-      </div>
-      <div class="stat-cell clickable" @click="$router.push('/daily?tab=all')">
-        <div class="stat-label"><a-icon type="solution" /> 日报待校核</div>
-        <div class="stat-value orange">{{ stats.uncheckedCount }}<small>份</small></div>
-      </div>
-      <div class="stat-cell">
-        <div class="stat-label"><a-icon type="dashboard" /> 到岗率</div>
-        <div class="stat-value">{{ stats.attendanceRate }}<small>%</small></div>
-      </div>
-    </div>
-
-    <div class="overview-middle">
-      <div class="todo-panel">
-        <div class="section-title" style="margin-bottom: 10px;">
-          我的待办
-          <span class="section-extra">共 {{ todo.total }} 项</span>
+    <div class="stat-groups">
+      <div class="stat-group">
+        <div class="stat-group-title"><a-icon type="team" /> 人员服务与到岗</div>
+        <div class="stat-group-row">
+          <div class="stat-group-cell clickable" @click="openAttendance">
+            <div class="stat-label">服务人员数</div>
+            <div class="stat-value">{{ stats.serviceCount }}<small>人</small></div>
+          </div>
+          <div class="stat-group-cell clickable" @click="openAttendance">
+            <div class="stat-label">今日到岗人数</div>
+            <div class="stat-value blue">{{ stats.attendedCount }}<small>人</small></div>
+          </div>
+          <div class="stat-group-cell">
+            <div class="stat-label">今日到岗率</div>
+            <div class="stat-value">{{ stats.expectedPeople ? stats.attendanceRate + '%' : '—' }}</div>
+          </div>
         </div>
-        <div class="todo-cards">
-          <div class="todo-card">
-            <div class="todo-card-head">
-              <a-icon type="form" class="todo-card-icon blue" />
-              <span>待填日报</span>
-              <b>{{ todo.dailyCount }}</b>
-            </div>
-            <div
-              v-for="item in todoDaily"
-              :key="item.id"
-              class="todo-card-row"
-              @click="$router.push('/daily')"
-            >
-              <span class="todo-card-title">{{ item.projectName }}</span>
-              <span class="muted">{{ item.status }}</span>
-            </div>
-            <div v-if="!todoDaily.length" class="todo-card-empty">今日日报已全部提交</div>
-            <div class="todo-card-foot" @click="$router.push('/daily')">去填写 <a-icon type="right" /></div>
-          </div>
+      </div>
 
-          <div class="todo-card">
-            <div class="todo-card-head">
-              <a-icon type="message" class="todo-card-icon orange" />
-              <span>待推进诉求</span>
-              <b>{{ todo.appealCount }}</b>
-            </div>
-            <div
-              v-for="item in todoAppeals"
-              :key="item.id"
-              class="todo-card-row"
-              @click="openAppeal(item.id)"
-            >
-              <span class="todo-card-title">{{ item.title }}</span>
-              <span class="muted">{{ item.dueDate }} 前</span>
-            </div>
-            <div v-if="!todoAppeals.length" class="todo-card-empty">暂无待推进诉求</div>
-            <div class="todo-card-foot" @click="$router.push('/appeals')">去处理 <a-icon type="right" /></div>
+      <div class="stat-group">
+        <div class="stat-group-title"><a-icon type="profile" /> 项目诉求</div>
+        <div class="stat-group-row">
+          <div class="stat-group-cell clickable" @click="goAppeals('')">
+            <div class="stat-label">诉求总数</div>
+            <div class="stat-value">{{ stats.appealTotal }}<small>条</small></div>
           </div>
+          <div class="stat-group-cell clickable" @click="goAppeals('办理中')">
+            <div class="stat-label">办理中</div>
+            <div class="stat-value orange">{{ stats.processingCount }}<small>条</small></div>
+          </div>
+          <div class="stat-group-cell clickable" @click="goAppeals('销项审批中')">
+            <div class="stat-label">销项审批中</div>
+            <div class="stat-value orange">{{ stats.closingCount }}<small>条</small></div>
+          </div>
+          <div class="stat-group-cell clickable" @click="goAppeals('已销项')">
+            <div class="stat-label">已销项</div>
+            <div class="stat-value green">{{ stats.closedCount }}<small>条</small></div>
+          </div>
+        </div>
+      </div>
 
-          <div class="todo-card">
-            <div class="todo-card-head">
-              <a-icon type="audit" class="todo-card-icon red" />
-              <span>待处理审批</span>
-              <b>{{ todo.approvalCount }}</b>
-            </div>
-            <div
-              v-for="item in todoApprovals.slice(0, 4)"
-              :key="item.key"
-              class="todo-card-row"
-              @click="$router.push(item.path)"
-            >
-              <span class="todo-card-title">{{ item.title }}</span>
-              <span class="muted">{{ item.desc }}</span>
-            </div>
-            <div v-if="todoApprovals.length > 4" class="todo-card-more muted">还有 {{ todoApprovals.length - 4 }} 项待处理</div>
-            <div v-if="!todoApprovals.length" class="todo-card-empty">暂无待处理审批</div>
-            <div class="todo-card-foot" @click="showApprovalList = true">查看全部 <a-icon type="right" /></div>
+      <div class="stat-group">
+        <div class="stat-group-title"><a-icon type="form" /> 日报填报</div>
+        <div class="stat-group-row">
+          <div class="stat-group-cell clickable" @click="goDaily('')">
+            <div class="stat-label">当日应填</div>
+            <div class="stat-value">{{ stats.dueCount }}<small>份</small></div>
+          </div>
+          <div class="stat-group-cell clickable" @click="goDaily('已提交')">
+            <div class="stat-label">已填</div>
+            <div class="stat-value blue">{{ stats.submittedCount }}<small>份</small></div>
+          </div>
+          <div class="stat-group-cell clickable" @click="goDaily('未填写')">
+            <div class="stat-label">未填</div>
+            <div class="stat-value red">{{ stats.unfilledCount }}<small>份</small></div>
           </div>
         </div>
       </div>
@@ -131,7 +72,7 @@
     <div class="section-block">
       <div class="section-title">
         综合台账
-        <span class="section-extra">同一份业务数据，按类别切换查看，点击行查看详情</span>
+        <span class="section-extra">点击编号或日报日期查看详情，其他列不响应点击</span>
       </div>
       <a-tabs v-model="ledgerTab" @change="onLedgerTabChange">
         <a-tab-pane key="relations" tab="帮扶关系" />
@@ -151,6 +92,7 @@
           <a-icon slot="prefix" type="search" style="color:#b3c0ce" />
         </a-input>
         <a-select
+          v-if="ledgerStatusOptions.length"
           v-model="ledgerStatus"
           placeholder="全部状态"
           allow-clear
@@ -169,10 +111,15 @@
         row-key="id"
         size="middle"
         :scroll="{ x: 1060 }"
-        :custom-row="record => ({ on: { click: () => openLedgerDetail(record) } })"
       >
         <div slot="status" slot-scope="text">
           <status-tag :status="text" />
+        </div>
+        <div slot="idLink" slot-scope="text, record">
+          <a class="ledger-link" @click="openLedgerDetail(record)">{{ text }}</a>
+        </div>
+        <div slot="dateLink" slot-scope="text, record">
+          <a class="ledger-link" @click="openLedgerDetail(record)">{{ text }}</a>
         </div>
         <div slot="content" slot-scope="text" class="ledger-content">{{ text }}</div>
       </a-table>
@@ -188,7 +135,8 @@
         <div class="report-card">
           <div class="report-card-title"><a-icon type="profile" /> 业务清单</div>
           <a-form-model layout="vertical" :label-col="{ span: 24 }">
-            <a-form-model-item label="清单类型">
+            <a-form-model-item>
+              <span slot="label"><span class="required-mark">*</span>清单类型</span>
               <a-select v-model="reportType">
                 <a-select-option value="works">附件1 · 重点工作梳理清单</a-select-option>
                 <a-select-option value="appeals">附件2 · 项目诉求办理清单</a-select-option>
@@ -208,12 +156,12 @@
         </div>
 
         <div class="report-card">
-          <div class="report-card-title"><a-icon type="form" /> 项目日报（附件4）</div>
+          <div class="report-card-title"><a-icon type="form" /> 日报（附件4）</div>
           <div class="report-field">
-            <span class="report-label">日报日期</span>
+            <span class="report-label"><span class="required-mark">*</span>日报日期</span>
             <a-date-picker v-model="reportDate" :allow-clear="false" style="width: 100%" />
           </div>
-          <div class="report-desc">按选定日期汇总服务项目日报，包含情况汇总、未到岗人员情况、服务项目人员情况。</div>
+          <div class="report-desc">按选定日期汇总诉求日报，包含情况汇总、未到岗人员情况、服务项目人员情况。</div>
           <div class="report-actions">
             <a-button type="primary" size="small" @click="exportDaily"><a-icon type="download" /> 导出 Excel</a-button>
             <a-button size="small" @click="printDaily"><a-icon type="printer" /> 打印 / PDF</a-button>
@@ -223,8 +171,13 @@
         <div class="report-card">
           <div class="report-card-title"><a-icon type="schedule" /> 周度汇总（附件5）</div>
           <div class="report-field">
-            <span class="report-label">周起止日期</span>
-            <a-range-picker v-model="reportWeek" :allow-clear="false" style="width: 100%" />
+            <span class="report-label"><span class="required-mark">*</span>自然周</span>
+            <a-week-picker v-model="reportWeekValue" :allow-clear="false" style="width: 100%" />
+            <div class="report-week-actions">
+              <a-button size="small" @click="setReportWeek(0)">本周</a-button>
+              <a-button size="small" @click="setReportWeek(-1)">上周</a-button>
+            </div>
+            <div class="report-desc">统计范围：{{ reportWeekStart.format('YYYY-MM-DD') }} 至 {{ reportWeekEnd.format('YYYY-MM-DD') }}</div>
           </div>
           <div class="report-desc">仅根据每日日报数据生成，按人员、日期排列，逐日展示，不含独立周报填报。</div>
           <div class="report-actions">
@@ -305,7 +258,6 @@
             <div class="detail-item full"><span class="detail-label">诉求事项</span><span class="detail-value">{{ ledgerDetail.row.title }}</span></div>
             <div class="detail-item full"><span class="detail-label">具体描述</span><span class="detail-value">{{ ledgerDetail.row.desc }}</span></div>
             <div class="detail-item full"><span class="detail-label">推进计划</span><span class="detail-value">{{ ledgerDetail.row.plan }}</span></div>
-            <div class="detail-item full"><span class="detail-label">最新进展</span><span class="detail-value">{{ ledgerDetail.row.latestProgress }}</span></div>
           </div>
         </div>
 
@@ -316,9 +268,9 @@
             <div class="detail-item"><span class="detail-label">姓名</span><span class="detail-value">{{ ledgerDetail.row.personName }}</span></div>
             <div class="detail-item"><span class="detail-label">部门</span><span class="detail-value">{{ ledgerDetail.row.deptName }}</span></div>
             <div class="detail-item"><span class="detail-label">项目</span><span class="detail-value">{{ ledgerDetail.row.projectName }}</span></div>
-            <div class="detail-item"><span class="detail-label">校核状态</span><span class="detail-value"><status-tag :status="ledgerDetail.row.checkStatus" /></span></div>
             <div class="detail-item"><span class="detail-label">是否到岗</span><span class="detail-value">{{ ledgerDetail.row.attend === true ? '是' : (ledgerDetail.row.attend === false ? '否' : '尚未填报') }}</span></div>
             <div class="detail-item"><span class="detail-label">冻结状态</span><span class="detail-value"><status-tag :status="ledgerDetail.row.frozen ? '已冻结' : '未冻结'" /></span></div>
+            <div class="detail-item full"><span class="detail-label">对应诉求事项</span><span class="detail-value">{{ ledgerDetail.row.appealTitle }}</span></div>
             <div class="detail-item full"><span class="detail-label">当日工作开展情况</span><span class="detail-value">{{ ledgerDetail.row.workContent || '—' }}</span></div>
             <div class="detail-item full"><span class="detail-label">需协调解决问题</span><span class="detail-value">{{ ledgerDetail.row.newIssues || '无' }}</span></div>
           </div>
@@ -327,13 +279,13 @@
         <div v-if="ledgerDetail.type === 'suggestions'" class="drawer-section">
           <div class="detail-grid">
             <div class="detail-item"><span class="detail-label">建议编号</span><span class="detail-value">{{ ledgerDetail.row.id }}</span></div>
-            <div class="detail-item"><span class="detail-label">建议状态</span><span class="detail-value"><status-tag :status="ledgerDetail.row.status" /></span></div>
             <div class="detail-item"><span class="detail-label">提出人</span><span class="detail-value">{{ ledgerDetail.row.proposerName }} / {{ ledgerDetail.row.proposerDeptName }}</span></div>
             <div class="detail-item"><span class="detail-label">主责部门</span><span class="detail-value">{{ ledgerDetail.row.deptName }}</span></div>
             <div class="detail-item full"><span class="detail-label">建议事项</span><span class="detail-value">{{ ledgerDetail.row.title }}</span></div>
             <div class="detail-item full"><span class="detail-label">涉及制度/流程</span><span class="detail-value">{{ ledgerDetail.row.flow }}</span></div>
             <div class="detail-item full"><span class="detail-label">问题描述</span><span class="detail-value">{{ ledgerDetail.row.desc }}</span></div>
             <div class="detail-item full"><span class="detail-label">回复意见</span><span class="detail-value">{{ ledgerDetail.row.replyText || '待部门确认' }}</span></div>
+            <div v-if="ledgerDetail.row.archiveOpinion" class="detail-item full"><span class="detail-label">企划归档意见</span><span class="detail-value">{{ ledgerDetail.row.archiveOpinion }}</span></div>
           </div>
         </div>
 
@@ -343,32 +295,13 @@
         <a-button type="primary" ghost @click="jumpToModule">进入业务页面 <a-icon type="right" /></a-button>
       </template>
     </a-modal>
-
-    <a-modal
-      title="待处理审批事项"
-      :visible="showApprovalList"
-      :footer="null"
-      :width="680"
-      @cancel="showApprovalList = false"
-    >
-      <a-list :data-source="todoApprovals" size="small">
-        <a-list-item slot="renderItem" slot-scope="item">
-          <a-list-item-meta>
-            <span slot="title">{{ item.title }}</span>
-            <span slot="description">{{ item.desc }}</span>
-          </a-list-item-meta>
-          <a slot="actions" @click="goApproval(item.path)">去处理</a>
-        </a-list-item>
-      </a-list>
-      <a-empty v-if="!todoApprovals.length" description="暂无待处理审批" />
-    </a-modal>
   </div>
 </template>
 
 <script>
 import moment from 'moment'
 import StatusTag from '../components/StatusTag.vue'
-import { weekRange, todayStr, fmtDate } from '../utils/date'
+import { todayStr, fmtDate } from '../utils/date'
 import {
   exportWorksExcel,
   exportAppealsExcel,
@@ -389,7 +322,6 @@ export default {
   name: 'OverviewView',
   components: { StatusTag },
   data () {
-    const week = weekRange(0)
     return {
       today: todayStr(),
       statDate: moment(),
@@ -399,11 +331,10 @@ export default {
       detailVisible: false,
       ledgerDetail: null,
       attendanceVisible: false,
-      showApprovalList: false,
       reportType: 'works',
       reportProject: '',
       reportDate: moment(),
-      reportWeek: [moment(week[0]), moment(week[1])]
+      reportWeekValue: moment().startOf('isoWeek')
     }
   },
   computed: {
@@ -413,42 +344,22 @@ export default {
     statDay () {
       return fmtDate(this.statDate) || this.today
     },
-    todo () {
-      return this.$store.todos()
-    },
     projects () {
       return this.$store.db.projects
     },
-    todoDaily () {
-      return this.$store.db.dailyReports
-        .filter(r => r.date === this.today && r.personId === this.$store.currentUser.id && r.status !== '已提交')
-        .slice(0, 3)
+    reportWeekStart () {
+      return this.reportWeekValue ? moment(this.reportWeekValue).startOf('isoWeek') : moment().startOf('isoWeek')
     },
-    todoAppeals () {
-      return this.$store.db.appeals
-        .filter(a => a.personId === this.$store.currentUser.id && a.status === '办理中')
-        .slice(0, 3)
-    },
-    todoApprovals () {
-      const list = []
-      const t = this.todo
-      t.sheets.forEach(s => list.push({ key: s.id, title: `重点工作梳理单创建审批 ${s.id}`, desc: `${s.deptName} · 待企划部审核`, path: '/works' }))
-      t.workCloses.forEach(w => list.push({ key: w.closeRequest.id, title: `重点工作销项审批 ${w.closeRequest.id}`, desc: w.title, path: '/works' }))
-      t.appealCloses.forEach(a => list.push({ key: a.closeRequest.id, title: `诉求销项审批 ${a.closeRequest.id}`, desc: `${a.projectName} · ${a.title}`, path: '/appeals' }))
-      t.relationBatches.forEach(b => {
-        const count = this.$store.db.relations.filter(r => r.batchId === b && r.status === '待审批').length
-        list.push({ key: b, title: `帮扶关系联合审批（${count} 条）`, desc: `批次 ${b}`, path: '/relations' })
-      })
-      t.suggestions.forEach(s => list.push({ key: s.id, title: `制度改进建议流程待办 ${s.id}`, desc: s.title, path: '/suggestions' }))
-      return list
+    reportWeekEnd () {
+      return this.reportWeekStart.clone().add(6, 'day')
     },
     ledgerStatusOptions () {
       const map = {
         relations: ['草稿', '待审批', '已生效', '已驳回', '已失效'],
         works: ['待生效', '落实中', '销项审批中', '已销项'],
-        appeals: ['办理中', '销项审批中', '已销项'],
-        reports: ['未填写', '草稿', '已提交'],
-        suggestions: ['待确认', '已回复', '已归档', '已退回']
+        appeals: ['办理中', '销项审批中', '已销项', '已删除'],
+        reports: ['未填写', '已提交'],
+        suggestions: []
       }
       return map[this.ledgerTab] || []
     },
@@ -457,7 +368,7 @@ export default {
       if (this.ledgerTab === 'relations') {
         return [
           { title: '序号', width: 50, align: 'center', customRender: (text, record, index) => index + 1 },
-          { title: '关系编号', dataIndex: 'id', width: 118 },
+          { title: '关系编号', dataIndex: 'id', width: 118, scopedSlots: { customRender: 'idLink' } },
           { title: '服务人员', dataIndex: 'personName', width: 80 },
           { title: '部门', dataIndex: 'deptName', width: 150 },
           { title: '服务项目', dataIndex: 'projectName', width: 180 },
@@ -469,7 +380,7 @@ export default {
       if (this.ledgerTab === 'works') {
         return [
           { title: '序号', width: 50, align: 'center', customRender: (text, record, index) => index + 1 },
-          { title: '事项编号', dataIndex: 'id', width: 108 },
+          { title: '事项编号', dataIndex: 'id', width: 108, scopedSlots: { customRender: 'idLink' } },
           { title: '部门', dataIndex: 'deptName', width: 150 },
           { title: '重点工作', dataIndex: 'title', width: 300, scopedSlots: { customRender: 'content' } },
           { title: '牵头人', dataIndex: 'leadName', width: 80 },
@@ -480,7 +391,7 @@ export default {
       if (this.ledgerTab === 'appeals') {
         return [
           { title: '序号', width: 50, align: 'center', customRender: (text, record, index) => index + 1 },
-          { title: '诉求编号', dataIndex: 'id', width: 110 },
+          { title: '诉求编号', dataIndex: 'id', width: 110, scopedSlots: { customRender: 'idLink' } },
           { title: '诉求事项', dataIndex: 'title', width: 260, scopedSlots: { customRender: 'content' } },
           { title: '所属项目', dataIndex: 'projectName', width: 170 },
           { title: '承办人', dataIndex: 'personName', width: 76 },
@@ -491,23 +402,22 @@ export default {
       if (this.ledgerTab === 'reports') {
         return [
           { title: '序号', width: 50, align: 'center', customRender: (text, record, index) => index + 1 },
-          { title: '日期', dataIndex: 'date', width: 106 },
+          { title: '日期', dataIndex: 'date', width: 106, scopedSlots: { customRender: 'dateLink' } },
           { title: '姓名', dataIndex: 'personName', width: 76 },
-          { title: '部门', dataIndex: 'deptName', width: 150 },
-          { title: '项目', dataIndex: 'projectName', width: 180 },
-          { title: '到岗', dataIndex: 'attendText', width: 72 },
-          { title: '校核状态', dataIndex: 'checkStatus', width: 100 },
+          { title: '部门', dataIndex: 'deptName', width: 145 },
+          { title: '项目', dataIndex: 'projectName', width: 165 },
+          { title: '对应诉求事项', dataIndex: 'appealTitle', width: 190, scopedSlots: { customRender: 'content' } },
+          { title: '到岗', dataIndex: 'attendText', width: 62 },
           statusCol
         ]
       }
       return [
         { title: '序号', width: 50, align: 'center', customRender: (text, record, index) => index + 1 },
-        { title: '建议编号', dataIndex: 'id', width: 106 },
+        { title: '建议编号', dataIndex: 'id', width: 106, scopedSlots: { customRender: 'idLink' } },
         { title: '建议事项', dataIndex: 'title', width: 300, scopedSlots: { customRender: 'content' } },
         { title: '主责部门', dataIndex: 'deptName', width: 170 },
         { title: '提出人', dataIndex: 'proposerName', width: 82 },
-        { title: '回复结论', dataIndex: 'replyText', width: 100 },
-        statusCol
+        { title: '回复结论', dataIndex: 'replyText', width: 100 }
       ]
     },
     ledgerRows () {
@@ -529,17 +439,17 @@ export default {
         if (kw) rows = rows.filter(r => `${r.title}${r.deptName}${r.leadName}`.indexOf(kw) > -1)
         if (st) rows = rows.filter(r => r.status === st)
       } else if (this.ledgerTab === 'appeals') {
-        rows = this.$store.db.appeals.slice()
+        rows = this.$store.db.appeals.filter(a => a.status !== '已删除')
+        if (st === '已删除') rows = this.$store.db.appeals.filter(a => a.status === '已删除')
         if (kw) rows = rows.filter(r => `${r.title}${r.projectName}${r.personName}`.indexOf(kw) > -1)
-        if (st) rows = rows.filter(r => r.status === st)
+        if (st && st !== '已删除') rows = rows.filter(r => r.status === st)
       } else if (this.ledgerTab === 'reports') {
-        rows = this.$store.db.dailyReports
-          .filter(r => r.date === this.today)
+        rows = this.$store.reportsForDate(this.today)
           .map(r => ({
             ...r,
             attendText: r.attend === true ? '是' : (r.attend === false ? '否' : '未填')
           }))
-        if (kw) rows = rows.filter(r => `${r.personName}${r.deptName}${r.projectName}`.indexOf(kw) > -1)
+        if (kw) rows = rows.filter(r => `${r.personName}${r.deptName}${r.projectName}${r.appealTitle || ''}`.indexOf(kw) > -1)
         if (st) rows = rows.filter(r => r.status === st)
       } else {
         rows = this.$store.db.suggestions.map(s => {
@@ -550,7 +460,6 @@ export default {
           }
         })
         if (kw) rows = rows.filter(r => `${r.title}${r.deptName}${r.proposerName}`.indexOf(kw) > -1)
-        if (st) rows = rows.filter(r => r.status === st)
       }
       return rows
     },
@@ -571,13 +480,16 @@ export default {
           }
         }
         map[r.personId].projects.push(r.projectName)
-        const report = this.$store.reportFor(this.statDay, r.personId, r.projectId)
-        if (report) map[r.personId].reports.push(report)
+        const reports = this.$store.db.dailyReports.filter(rep =>
+          !rep.legacy && rep.date === this.statDay && rep.personId === r.personId && rep.projectId === r.projectId
+        )
+        reports.forEach(rep => map[r.personId].reports.push(rep))
       })
       return Object.values(map).map(row => {
         const submitted = row.reports.filter(r => r.status === '已提交')
         let attendance = '尚未填报'
-        if (submitted.some(r => r.attend === true)) attendance = '已到岗'
+        if (!row.reports.length) attendance = '无应填'
+        else if (submitted.some(r => r.attend === true)) attendance = '已到岗'
         else if (submitted.length && submitted.every(r => r.attend === false)) attendance = '未到岗'
         else if (submitted.length) attendance = '已到岗'
         return {
@@ -606,8 +518,13 @@ export default {
       const query = status ? { status } : {}
       this.$router.push({ path: '/appeals', query })
     },
-    openAppeal (id) {
-      this.$router.push({ path: '/appeals', query: { id } })
+    goDaily (status) {
+      const query = { tab: 'all' }
+      if (status) query.status = status
+      this.$router.push({ path: '/daily', query })
+    },
+    setReportWeek (offset) {
+      this.reportWeekValue = moment().startOf('isoWeek').add(offset, 'week')
     },
     openLedgerDetail (record) {
       this.ledgerDetail = {
@@ -630,12 +547,7 @@ export default {
       this.detailVisible = false
       this.goLedgerModule()
     },
-    goApproval (path) {
-      this.showApprovalList = false
-      this.$router.push(path)
-    },
-    exportListExcel () {
-      if (this.reportType === 'works') exportWorksExcel()
+    exportListExcel () {      if (this.reportType === 'works') exportWorksExcel()
       else if (this.reportType === 'appeals') exportAppealsExcel(this.reportProject)
       else exportSuggestionsExcel()
       this.$message.success('Excel 文件已生成并开始下载')
@@ -653,13 +565,11 @@ export default {
       printDailyReport(fmtDate(this.reportDate))
     },
     exportWeekly () {
-      if (!this.reportWeek || this.reportWeek.length !== 2) return
-      exportWeeklyExcel(fmtDate(this.reportWeek[0]), fmtDate(this.reportWeek[1]))
+      exportWeeklyExcel(this.reportWeekStart.format('YYYY-MM-DD'), this.reportWeekEnd.format('YYYY-MM-DD'))
       this.$message.success('周报 Excel 文件已生成并开始下载')
     },
     printWeekly () {
-      if (!this.reportWeek || this.reportWeek.length !== 2) return
-      printWeeklyReport(fmtDate(this.reportWeek[0]), fmtDate(this.reportWeek[1]))
+      printWeeklyReport(this.reportWeekStart.format('YYYY-MM-DD'), this.reportWeekEnd.format('YYYY-MM-DD'))
     }
   }
 }
@@ -676,81 +586,72 @@ export default {
 .stat-cell.clickable:hover {
   background: #f2f9ff;
 }
-.overview-middle {
-  margin-top: 14px;
-}
-.todo-cards {
+.stat-groups {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1.1fr 1.25fr 1fr;
   gap: 12px;
 }
-.todo-card {
-  border: 1px solid #e8eff7;
+.stat-group {
+  border: 1px solid #e2edf8;
   border-radius: 3px;
   background: #fbfdff;
-  padding: 10px 12px;
-  min-height: 132px;
-  display: flex;
-  flex-direction: column;
-}
-.todo-card-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #2c4359;
-  margin-bottom: 8px;
-}
-.todo-card-head b {
-  margin-left: auto;
-  color: #e04b4b;
-  font-size: 17px;
-}
-.todo-card-icon {
-  font-size: 15px;
-}
-.todo-card-icon.blue { color: #1890ff; }
-.todo-card-icon.orange { color: #fa8c16; }
-.todo-card-icon.red { color: #f5222d; }
-.todo-card-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  padding: 4px 0;
-  cursor: pointer;
-  border-bottom: 1px dashed #f0f4f9;
-}
-.todo-card-row:last-of-type {
-  border-bottom: 0;
-}
-.todo-card-row:hover .todo-card-title {
-  color: #1890ff;
-}
-.todo-card-title {
-  flex: 1;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #40566d;
 }
-.todo-card-empty {
-  color: #a5b4c4;
-  font-size: 12px;
-  padding: 6px 0;
+.stat-group-title {
+  padding: 8px 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #2c4359;
+  background: #f5faff;
+  border-bottom: 1px solid #eaf2fa;
 }
-.todo-card-more {
-  font-size: 11.5px;
-  padding: 3px 0 0;
+.stat-group-row {
+  display: flex;
+  align-items: stretch;
 }
-.todo-card-foot {
-  margin-top: auto;
-  padding-top: 8px;
-  color: #1890ff;
-  font-size: 12px;
+.stat-group-cell {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 14px;
+  border-right: 1px solid #eef4fa;
+}
+.stat-group-cell:last-child {
+  border-right: 0;
+}
+.stat-group-cell.clickable {
   cursor: pointer;
-  text-align: right;
+}
+.stat-group-cell.clickable:hover {
+  background: #f2f9ff;
+}
+.stat-group-cell .stat-label {
+  font-size: 11.5px;
+  color: #7d90a5;
+  white-space: nowrap;
+}
+.stat-group-cell .stat-value {
+  margin-top: 3px;
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 700;
+  color: #1f3a56;
+}
+.stat-group-cell .stat-value small {
+  margin-left: 3px;
+  font-size: 11px;
+  color: #7d90a5;
+  font-weight: 400;
+}
+.stat-group-cell .stat-value.blue { color: #1890ff; }
+.stat-group-cell .stat-value.orange { color: #fa8c16; }
+.stat-group-cell .stat-value.green { color: #20a06b; }
+.stat-group-cell .stat-value.red { color: #e04b4b; }
+.ledger-link {
+  color: #1890ff;
+  cursor: pointer;
+}
+.ledger-link:hover {
+  color: #40a9ff;
 }
 .ledger-filter {
   display: flex;
@@ -812,6 +713,11 @@ export default {
   color: #8a9cb0;
   line-height: 18px;
   min-height: 54px;
+}
+.report-week-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
 }
 .report-actions {
   display: flex;
