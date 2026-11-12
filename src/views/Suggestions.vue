@@ -36,8 +36,6 @@
 
     <div class="toolbar">
       <a-button type="primary" @click="openCreate"><a-icon type="plus" /> 新增建议</a-button>
-      <a-button @click="exportExcel"><a-icon type="download" /> 导出附件3</a-button>
-      <a-button @click="printPdf"><a-icon type="printer" /> 打印 / PDF</a-button>
       <span class="muted toolbar-tip">部门负责人逐人确认“改/不改”，全部确认后由企划部填写归档意见并归档。</span>
     </div>
 
@@ -297,8 +295,6 @@ import moment from 'moment'
 import StatusTag from '../components/StatusTag.vue'
 import FileUploader from '../components/FileUploader.vue'
 import { fmtDate } from '../utils/date'
-import { exportSuggestionsExcel } from '../utils/exportExcel'
-import { printSuggestionsList } from '../utils/printReport'
 
 export default {
   name: 'SuggestionsView',
@@ -463,13 +459,6 @@ export default {
     openDetail (record) {
       this.current = record
       this.detailVisible = true
-    },
-    exportExcel () {
-      exportSuggestionsExcel()
-      this.$message.success('附件3 Excel 文件已生成并开始下载')
-    },
-    printPdf () {
-      printSuggestionsList()
     }
   }
 }

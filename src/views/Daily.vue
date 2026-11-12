@@ -123,7 +123,6 @@
 
           <div class="toolbar">
             <a-button @click="exportDailyExcelByDate"><a-icon type="download" /> 导出当日日报</a-button>
-            <a-button @click="printDailyPdf"><a-icon type="printer" /> 打印日报 / PDF</a-button>
             <span class="muted toolbar-tip">同一人同一项目的不同诉求分别占一行，可筛选未填写任务进行提醒。</span>
           </div>
 
@@ -175,8 +174,7 @@
             <a-button size="small" @click="setWeek('last')">上周</a-button>
             <span class="muted">{{ weekStart.format('YYYY-MM-DD') }} 至 {{ weekEnd.format('YYYY-MM-DD') }}</span>
             <div class="weekly-actions">
-              <a-button type="primary" size="small" @click="exportWeeklyExcel"><a-icon type="download" /> 导出 Excel</a-button>
-              <a-button size="small" @click="printWeeklyPdf"><a-icon type="printer" /> 打印 / PDF</a-button>
+              <a-button type="primary" size="small" @click="exportWeeklyExcel"><a-icon type="download" /> 导出周报Excel</a-button>
             </div>
           </div>
 
@@ -341,7 +339,6 @@ import StatusTag from '../components/StatusTag.vue'
 import { todayStr, fmtDate, isFrozen } from '../utils/date'
 import { buildWeeklyReport } from '../utils/reportData'
 import { exportDailyExcel, exportWeeklyExcel } from '../utils/exportExcel'
-import { printDailyReport, printWeeklyReport } from '../utils/printReport'
 
 export default {
   name: 'DailyView',
@@ -579,16 +576,9 @@ export default {
       exportDailyExcel(date)
       this.$message.success('日报 Excel 文件已生成并开始下载')
     },
-    printDailyPdf () {
-      const date = this.appliedAll.date || todayStr()
-      printDailyReport(date)
-    },
     exportWeeklyExcel () {
       exportWeeklyExcel(this.weekStart.format('YYYY-MM-DD'), this.weekEnd.format('YYYY-MM-DD'))
       this.$message.success('周报 Excel 文件已生成并开始下载')
-    },
-    printWeeklyPdf () {
-      printWeeklyReport(this.weekStart.format('YYYY-MM-DD'), this.weekEnd.format('YYYY-MM-DD'))
     }
   }
 }

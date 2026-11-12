@@ -50,8 +50,6 @@
 
     <div class="toolbar">
       <a-button type="primary" @click="openCreate"><a-icon type="plus" /> 新增项目诉求</a-button>
-      <a-button @click="exportExcel"><a-icon type="download" /> 导出附件2</a-button>
-      <a-button @click="printPdf"><a-icon type="printer" /> 打印 / PDF</a-button>
       <span class="muted toolbar-tip">诉求由工程部统一登记并安排承办人，保存后直接进入办理中。</span>
     </div>
 
@@ -346,8 +344,6 @@ import StatusTag from '../components/StatusTag.vue'
 import ApprovalModal from '../components/ApprovalModal.vue'
 import FileUploader from '../components/FileUploader.vue'
 import { todayStr, fmtDate, isOverdue as checkOverdue } from '../utils/date'
-import { exportAppealsExcel } from '../utils/exportExcel'
-import { printAppealsList } from '../utils/printReport'
 
 export default {
   name: 'AppealsView',
@@ -683,13 +679,6 @@ export default {
       if (!res.ok) return this.$message.error(res.message)
       this.approvalVisible = false
       this.$message.success(action === 'pass' ? (record.status === '已销项' ? '销项审批通过，诉求已办结归档' : '审批节点已通过') : '销项申请已退回承办人补充材料')
-    },
-    exportExcel () {
-      exportAppealsExcel(this.applied.projectId)
-      this.$message.success('附件2 Excel 文件已生成并开始下载')
-    },
-    printPdf () {
-      printAppealsList(this.applied.projectId)
     }
   }
 }

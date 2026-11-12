@@ -35,8 +35,6 @@
 
           <div class="toolbar">
             <a-button type="primary" @click="openSheetCreate"><a-icon type="plus" /> 新建梳理单</a-button>
-            <a-button @click="exportWorks"><a-icon type="download" /> 导出附件1</a-button>
-            <a-button @click="printWorks"><a-icon type="printer" /> 打印 / PDF</a-button>
             <span class="muted toolbar-tip">一张梳理单只归属一个总部部门，可一次批量新增多条重点工作并整单提交创建审批。</span>
           </div>
 
@@ -102,12 +100,6 @@
                 </div>
               </a-form-item>
             </a-form>
-          </div>
-
-          <div class="toolbar">
-            <a-button type="primary" @click="exportWorks"><a-icon type="download" /> 导出附件1</a-button>
-            <a-button @click="printWorks"><a-icon type="printer" /> 打印 / PDF</a-button>
-            <span class="muted toolbar-tip">填写总体执行情况和项目落实情况，并按单条事项申请销项。</span>
           </div>
 
           <a-table
@@ -500,8 +492,6 @@ import StatusTag from '../components/StatusTag.vue'
 import ApprovalModal from '../components/ApprovalModal.vue'
 import FileUploader from '../components/FileUploader.vue'
 import { todayStr, fmtDate } from '../utils/date'
-import { exportWorksExcel } from '../utils/exportExcel'
-import { printWorksList } from '../utils/printReport'
 
 function newSheetItem (deptId) {
   return {
@@ -892,13 +882,6 @@ export default {
       this.activeTab = 'works'
       this.workFilters = { system: sheet.system, deptId: sheet.deptId, status: undefined, keyword: '' }
       this.applyWorkFilter()
-    },
-    exportWorks () {
-      exportWorksExcel()
-      this.$message.success('附件1 Excel 文件已生成并开始下载')
-    },
-    printWorks () {
-      printWorksList()
     },
     openWorkDetail (work) {
       this.workCurrent = work

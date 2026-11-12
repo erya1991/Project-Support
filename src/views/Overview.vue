@@ -121,71 +121,15 @@
         <div slot="dateLink" slot-scope="text, record">
           <a class="ledger-link" @click="openLedgerDetail(record)">{{ text }}</a>
         </div>
+        <div slot="workSummary" slot-scope="text">
+          <a-tooltip :title="text || '—'"><div class="ledger-text">{{ text || '—' }}</div></a-tooltip>
+        </div>
+        <div slot="issues" slot-scope="text">
+          <a-tooltip :title="text || '—'"><div class="ledger-text">{{ text || '—' }}</div></a-tooltip>
+        </div>
         <div slot="content" slot-scope="text" class="ledger-content">{{ text }}</div>
       </a-table>
       <div v-if="!ledgerRows.length" class="ledger-empty">当前筛选条件下暂无台账数据</div>
-    </div>
-
-    <div class="section-block report-block">
-      <div class="section-title">
-        报表查询与导出
-        <span class="section-extra">导出内容以当前业务数据为准，PDF 通过浏览器打印另存</span>
-      </div>
-      <div class="report-grid">
-        <div class="report-card">
-          <div class="report-card-title"><a-icon type="profile" /> 业务清单</div>
-          <a-form-model layout="vertical" :label-col="{ span: 24 }">
-            <a-form-model-item>
-              <span slot="label"><span class="required-mark">*</span>清单类型</span>
-              <a-select v-model="reportType">
-                <a-select-option value="works">附件1 · 重点工作梳理清单</a-select-option>
-                <a-select-option value="appeals">附件2 · 项目诉求办理清单</a-select-option>
-                <a-select-option value="suggestions">附件3 · 制度改进建议清单</a-select-option>
-              </a-select>
-            </a-form-model-item>
-            <a-form-model-item v-if="reportType === 'appeals'" label="项目范围">
-              <a-select v-model="reportProject" allow-clear placeholder="全部项目">
-                <a-select-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
-              </a-select>
-            </a-form-model-item>
-          </a-form-model>
-          <div class="report-actions">
-            <a-button type="primary" size="small" @click="exportListExcel"><a-icon type="download" /> 导出 Excel</a-button>
-            <a-button size="small" @click="printList"><a-icon type="printer" /> 打印 / PDF</a-button>
-          </div>
-        </div>
-
-        <div class="report-card">
-          <div class="report-card-title"><a-icon type="form" /> 日报（附件4）</div>
-          <div class="report-field">
-            <span class="report-label"><span class="required-mark">*</span>日报日期</span>
-            <a-date-picker v-model="reportDate" :allow-clear="false" style="width: 100%" />
-          </div>
-          <div class="report-desc">按选定日期汇总诉求日报，包含情况汇总、未到岗人员情况、服务项目人员情况。</div>
-          <div class="report-actions">
-            <a-button type="primary" size="small" @click="exportDaily"><a-icon type="download" /> 导出 Excel</a-button>
-            <a-button size="small" @click="printDaily"><a-icon type="printer" /> 打印 / PDF</a-button>
-          </div>
-        </div>
-
-        <div class="report-card">
-          <div class="report-card-title"><a-icon type="schedule" /> 周度汇总（附件5）</div>
-          <div class="report-field">
-            <span class="report-label"><span class="required-mark">*</span>自然周</span>
-            <a-week-picker v-model="reportWeekValue" :allow-clear="false" style="width: 100%" />
-            <div class="report-week-actions">
-              <a-button size="small" @click="setReportWeek(0)">本周</a-button>
-              <a-button size="small" @click="setReportWeek(-1)">上周</a-button>
-            </div>
-            <div class="report-desc">统计范围：{{ reportWeekStart.format('YYYY-MM-DD') }} 至 {{ reportWeekEnd.format('YYYY-MM-DD') }}</div>
-          </div>
-          <div class="report-desc">仅根据每日日报数据生成，按人员、日期排列，逐日展示，不含独立周报填报。</div>
-          <div class="report-actions">
-            <a-button type="primary" size="small" @click="exportWeekly"><a-icon type="download" /> 导出 Excel</a-button>
-            <a-button size="small" @click="printWeekly"><a-icon type="printer" /> 打印 / PDF</a-button>
-          </div>
-        </div>
-      </div>
     </div>
 
     <a-modal
@@ -302,20 +246,6 @@
 import moment from 'moment'
 import StatusTag from '../components/StatusTag.vue'
 import { todayStr, fmtDate } from '../utils/date'
-import {
-  exportWorksExcel,
-  exportAppealsExcel,
-  exportSuggestionsExcel,
-  exportDailyExcel,
-  exportWeeklyExcel
-} from '../utils/exportExcel'
-import {
-  printWorksList,
-  printAppealsList,
-  printSuggestionsList,
-  printDailyReport,
-  printWeeklyReport
-} from '../utils/printReport'
 import { workResultText } from '../utils/reportData'
 
 export default {
@@ -330,11 +260,7 @@ export default {
       ledgerStatus: undefined,
       detailVisible: false,
       ledgerDetail: null,
-      attendanceVisible: false,
-      reportType: 'works',
-      reportProject: '',
-      reportDate: moment(),
-      reportWeekValue: moment().startOf('isoWeek')
+      attendanceVisible: false
     }
   },
   computed: {
@@ -343,15 +269,6 @@ export default {
     },
     statDay () {
       return fmtDate(this.statDate) || this.today
-    },
-    projects () {
-      return this.$store.db.projects
-    },
-    reportWeekStart () {
-      return this.reportWeekValue ? moment(this.reportWeekValue).startOf('isoWeek') : moment().startOf('isoWeek')
-    },
-    reportWeekEnd () {
-      return this.reportWeekStart.clone().add(6, 'day')
     },
     ledgerStatusOptions () {
       const map = {
@@ -402,12 +319,14 @@ export default {
       if (this.ledgerTab === 'reports') {
         return [
           { title: '序号', width: 50, align: 'center', customRender: (text, record, index) => index + 1 },
-          { title: '日期', dataIndex: 'date', width: 106, scopedSlots: { customRender: 'dateLink' } },
-          { title: '姓名', dataIndex: 'personName', width: 76 },
-          { title: '部门', dataIndex: 'deptName', width: 145 },
-          { title: '项目', dataIndex: 'projectName', width: 165 },
-          { title: '对应诉求事项', dataIndex: 'appealTitle', width: 190, scopedSlots: { customRender: 'content' } },
-          { title: '到岗', dataIndex: 'attendText', width: 62 },
+          { title: '日期', dataIndex: 'date', width: 92, scopedSlots: { customRender: 'dateLink' } },
+          { title: '姓名', dataIndex: 'personName', width: 64 },
+          { title: '部门', dataIndex: 'deptName', width: 110 },
+          { title: '项目', dataIndex: 'projectName', width: 120 },
+          { title: '对应诉求事项', dataIndex: 'appealTitle', width: 150, scopedSlots: { customRender: 'content' } },
+          { title: '到岗', dataIndex: 'attendText', width: 50 },
+          { title: '当日工作开展情况', dataIndex: 'workContent', width: 180, scopedSlots: { customRender: 'workSummary' } },
+          { title: '今日项目反馈需协调解决问题', dataIndex: 'newIssues', width: 160, scopedSlots: { customRender: 'issues' } },
           statusCol
         ]
       }
@@ -447,6 +366,8 @@ export default {
         rows = this.$store.reportsForDate(this.today)
           .map(r => ({
             ...r,
+            workContent: r.status === '已提交' ? r.workContent : '',
+            newIssues: r.status === '已提交' ? r.newIssues : '',
             attendText: r.attend === true ? '是' : (r.attend === false ? '否' : '未填')
           }))
         if (kw) rows = rows.filter(r => `${r.personName}${r.deptName}${r.projectName}${r.appealTitle || ''}`.indexOf(kw) > -1)
@@ -523,9 +444,6 @@ export default {
       if (status) query.status = status
       this.$router.push({ path: '/daily', query })
     },
-    setReportWeek (offset) {
-      this.reportWeekValue = moment().startOf('isoWeek').add(offset, 'week')
-    },
     openLedgerDetail (record) {
       this.ledgerDetail = {
         type: this.ledgerTab,
@@ -546,30 +464,6 @@ export default {
     jumpToModule () {
       this.detailVisible = false
       this.goLedgerModule()
-    },
-    exportListExcel () {      if (this.reportType === 'works') exportWorksExcel()
-      else if (this.reportType === 'appeals') exportAppealsExcel(this.reportProject)
-      else exportSuggestionsExcel()
-      this.$message.success('Excel 文件已生成并开始下载')
-    },
-    printList () {
-      if (this.reportType === 'works') printWorksList()
-      else if (this.reportType === 'appeals') printAppealsList(this.reportProject)
-      else printSuggestionsList()
-    },
-    exportDaily () {
-      exportDailyExcel(fmtDate(this.reportDate))
-      this.$message.success('日报 Excel 文件已生成并开始下载')
-    },
-    printDaily () {
-      printDailyReport(fmtDate(this.reportDate))
-    },
-    exportWeekly () {
-      exportWeeklyExcel(this.reportWeekStart.format('YYYY-MM-DD'), this.reportWeekEnd.format('YYYY-MM-DD'))
-      this.$message.success('周报 Excel 文件已生成并开始下载')
-    },
-    printWeekly () {
-      printWeeklyReport(this.reportWeekStart.format('YYYY-MM-DD'), this.reportWeekEnd.format('YYYY-MM-DD'))
     }
   }
 }
@@ -670,60 +564,17 @@ export default {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
+.ledger-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
 .ledger-empty {
   text-align: center;
   color: #a5b4c4;
   font-size: 12px;
   padding: 16px 0 4px;
-}
-.report-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-.report-card {
-  border: 1px solid #e8eff7;
-  border-radius: 3px;
-  padding: 12px 14px;
-  background: #fbfdff;
-  display: flex;
-  flex-direction: column;
-}
-.report-card-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #2c4359;
-  margin-bottom: 10px;
-}
-.report-card-title .anticon {
-  color: #1890ff;
-  margin-right: 3px;
-}
-.report-field {
-  margin-bottom: 8px;
-}
-.report-label {
-  display: block;
-  font-size: 12px;
-  color: #7d90a5;
-  margin-bottom: 4px;
-}
-.report-desc {
-  font-size: 11.5px;
-  color: #8a9cb0;
-  line-height: 18px;
-  min-height: 54px;
-}
-.report-week-actions {
-  margin-top: 8px;
-  display: flex;
-  gap: 6px;
-}
-.report-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 10px;
 }
 .drawer-jump {
   margin-top: 18px;
