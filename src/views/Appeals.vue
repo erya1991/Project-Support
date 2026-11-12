@@ -12,7 +12,7 @@
             <a-select-option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="责任人">
+        <a-form-item label="承办人">
           <a-select v-model="filters.personId" placeholder="全部人员" allow-clear show-search option-filter-prop="children" style="width: 150px">
             <a-select-option v-for="p in people" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
           </a-select>
@@ -53,7 +53,7 @@
       <a-button type="primary" @click="openCreate"><a-icon type="plus" /> 新增项目诉求</a-button>
       <a-button @click="exportExcel"><a-icon type="download" /> 导出附件2</a-button>
       <a-button @click="printPdf"><a-icon type="printer" /> 打印 / PDF</a-button>
-      <span class="muted toolbar-tip">一条诉求固定一个项目和一名总部帮扶责任人，该责任人同时是实际执行承办人。</span>
+      <span class="muted toolbar-tip">诉求由工程部统一登记并安排承办人，保存后直接进入办理中。</span>
     </div>
 
     <a-table
@@ -74,17 +74,11 @@
       </div>
       <div slot="latest" slot-scope="text, record">
         <div class="latest-cell" :title="text">{{ text }}</div>
-        <div class="latest-time muted">{{ latestTime(record) }}</div>
+        <div class="latest-time muted">{{ record.latestReportDate || '' }}</div>
       </div>
       <div slot="status" slot-scope="text"><status-tag :status="text" /></div>
       <div slot="action" slot-scope="text, record" class="table-actions">
-        <template v-if="record.status === '待受理'">
-          <a class="link-btn" @click="acceptAppeal(record)">受理</a>
-          <a-divider type="vertical" />
-        </template>
-        <template v-else-if="record.status === '办理中'">
-          <a class="link-btn" @click="openProgress(record)">追加进展</a>
-          <a-divider type="vertical" />
+        <template v-if="record.status === '办理中'">
           <a class="link-btn" @click="openClose(record)">申请销项</a>
           <a-divider type="vertical" />
         </template>
@@ -93,7 +87,7 @@
           <a-divider type="vertical" />
         </template>
         <a class="link-btn" @click="openDetail(record)">详情</a>
-        <template v-if="record.status === '待受理' || record.status === '办理中'">
+        <template v-if="record.status === '办理中'">
           <a-divider type="vertical" />
           <a class="link-btn" @click="openEdit(record)">编辑</a>
         </template>
@@ -110,7 +104,7 @@
     >
       <div class="alert-note" style="margin-bottom:14px;">
         <a-icon type="info-circle" />
-        一条诉求只关联一个具体项目、一名总部帮扶责任人；责任人来自该项目有效帮扶关系，同时承担日报反馈与办理销项。
+        诉求由工程部统一登记并安排承办人；一条诉求只关联一个具体项目、一名承办人，承办人来自该项目当前有效帮扶关系。
       </div>
       <a-form-model :label-col="{ span: 8 }" :wrapper-col="{ span: 16 }">
         <a-row :gutter="18">
@@ -130,10 +124,10 @@
             </a-form-model-item>
           </a-col>
           <a-col :span="12">
-            <a-form-model-item label="总部帮扶责任人" required>
+            <a-form-model-item label="承办人" required>
               <a-select
                 v-model="form.personId"
-                placeholder="请选择责任人"
+                placeholder="请选择承办人"
                 :disabled="!form.projectId"
                 show-search
                 option-filter-prop="children"
@@ -149,7 +143,7 @@
           </a-col>
           <a-col :span="12">
             <a-form-model-item label="主责部门">
-              <div class="readonly-box">{{ formDeptName || '随责任人带出' }}</div>
+              <div class="readonly-box">{{ formDeptName || '随承办人带出' }}</div>
             </a-form-model-item>
           </a-col>
           <a-col :span="12">
@@ -204,18 +198,6 @@
       </template>
     </a-modal>
 
-    <!-- 追加进展 -->
-    <a-modal title="追加办理进展" :visible="progressVisible" :width="620" @cancel="progressVisible = false">
-      <div class="alert-note" style="margin-bottom:12px;">
-        <a-icon type="info-circle" /> 此处补录的进展会写入诉求办理时间线；日常进展也可通过项目日报提交后自动回写。
-      </div>
-      <a-textarea v-model="progressContent" :rows="4" :max-length="300" placeholder="请输入本次办理进展" />
-      <template slot="footer">
-        <a-button @click="progressVisible = false">关闭</a-button>
-        <a-button type="primary" @click="saveProgress">保存进展</a-button>
-      </template>
-    </a-modal>
-
     <!-- 发起销项 -->
     <a-modal title="发起诉求销项" :visible="closeVisible" :width="680" @cancel="closeVisible = false">
       <div class="alert-note warn" style="margin-bottom:12px;">
@@ -250,13 +232,12 @@
         </div>
         <div class="detail-grid">
           <div class="detail-item"><span class="detail-label">主责部门</span><span class="detail-value">{{ current.deptName }}</span></div>
-          <div class="detail-item"><span class="detail-label">责任人</span><span class="detail-value">{{ current.personName }}　<span class="muted">{{ current.personPhone }}</span></span></div>
+          <div class="detail-item"><span class="detail-label">承办人</span><span class="detail-value">{{ current.personName }}　<span class="muted">{{ current.personPhone }}</span></span></div>
           <div class="detail-item"><span class="detail-label">完成时限</span><span class="detail-value" :class="{ 'danger-text': isOverdue(current) }">{{ current.dueDate }}<a-tag v-if="isOverdue(current)" color="red" style="margin-left:6px">超期</a-tag></span></div>
           <div class="detail-item"><span class="detail-label">诉求来源</span><span class="detail-value">{{ current.source }}</span></div>
           <div class="detail-item"><span class="detail-label">登记时间</span><span class="detail-value">{{ current.createdAt }}</span></div>
-          <div class="detail-item"><span class="detail-label">受理时间</span><span class="detail-value">{{ current.acceptedAt || '待受理' }}</span></div>
           <div class="detail-item"><span class="detail-label">协同部门</span><span class="detail-value">{{ current.coDepts && current.coDepts.length ? current.coDepts.map(deptName).join('、') : '无' }}</span></div>
-          <div class="detail-item"><span class="detail-label">最近反馈</span><span class="detail-value">{{ latestTime(current) }}</span></div>
+          <div class="detail-item"><span class="detail-label">最近日报</span><span class="detail-value">{{ current.latestReportDate || '—' }}</span></div>
           <div class="detail-item full"><span class="detail-label">具体描述</span><span class="detail-value">{{ current.desc }}</span></div>
           <div class="detail-item full"><span class="detail-label">推进计划</span><span class="detail-value">{{ current.plan }}</span></div>
           <div class="detail-item full"><span class="detail-label">最新进展</span><span class="detail-value">{{ current.latestProgress }}</span></div>
@@ -270,16 +251,29 @@
         </div>
 
         <div class="drawer-section" style="margin-top:16px;">
-          <div class="drawer-section-title">办理进展时间线</div>
-          <a-timeline>
-            <a-timeline-item v-for="(p, index) in currentProgress" :key="index" :color="progressColor(p.source)">
-              <div class="progress-head">
-                <a-tag :color="sourceColor(p.source)">{{ p.source }}</a-tag>
-                <span class="muted">{{ p.time }} · {{ p.operator }}</span>
-              </div>
-              <div class="progress-text">{{ p.content }}</div>
-            </a-timeline-item>
-          </a-timeline>
+          <div class="drawer-section-title">
+            办理日报
+            <span class="extra">仅展示已提交且关联本诉求的日报</span>
+          </div>
+          <a-table
+            :columns="dailyReportColumns"
+            :data-source="currentReports"
+            :pagination="false"
+            size="small"
+            row-key="id"
+            :scroll="{ x: 810 }"
+          >
+            <div slot="workSummary" slot-scope="text" class="summary-cell" :title="text">{{ text }}</div>
+            <div slot="issues" slot-scope="text" class="summary-cell" :title="text">{{ text }}</div>
+            <div slot="attend" slot-scope="text">
+              <a-tag :color="text === true ? 'green' : (text === false ? 'orange' : '')">{{ text === true ? '是' : (text === false ? '否' : '未填') }}</a-tag>
+            </div>
+            <div slot="checkStatus" slot-scope="text"><status-tag :status="text" /></div>
+            <div slot="action" slot-scope="text, record">
+              <a class="link-btn" @click="openReportView(record)">查看</a>
+            </div>
+          </a-table>
+          <div v-if="!currentReports.length" class="exec-empty">暂无已提交的关联日报</div>
         </div>
 
         <div class="drawer-section">
@@ -304,10 +298,31 @@
       </template>
       <template slot="footer">
         <a-button @click="detailVisible = false">关闭</a-button>
-        <a-button v-if="current && current.status === '待受理'" type="primary" @click="acceptAppeal(current)">受理诉求</a-button>
-        <a-button v-if="current && (current.status === '待受理' || current.status === '办理中')" @click="openEdit(current)">编辑</a-button>
-        <a-button v-if="current && current.status === '办理中'" type="primary" ghost @click="openProgress(current)">追加进展</a-button>
+        <a-button v-if="current && current.status === '办理中'" @click="openEdit(current)">编辑</a-button>
         <a-button v-if="current && current.status === '办理中'" type="primary" @click="openClose(current)">申请销项</a-button>
+      </template>
+    </a-modal>
+
+    <a-modal
+      title="办理日报详情"
+      :visible="reportViewVisible"
+      :width="760"
+      @cancel="reportViewVisible = false"
+    >
+      <template v-if="reportViewRecord">
+        <div class="detail-grid">
+          <div class="detail-item"><span class="detail-label">日期</span><span class="detail-value">{{ reportViewRecord.date }}</span></div>
+          <div class="detail-item"><span class="detail-label">填报人</span><span class="detail-value">{{ reportViewRecord.personName }}</span></div>
+          <div class="detail-item"><span class="detail-label">项目</span><span class="detail-value">{{ reportViewRecord.projectName }}</span></div>
+          <div class="detail-item"><span class="detail-label">是否到岗</span><span class="detail-value">{{ reportViewRecord.attend === true ? '是' : (reportViewRecord.attend === false ? '否' : '未填') }}</span></div>
+          <div class="detail-item"><span class="detail-label">校核状态</span><span class="detail-value"><status-tag :status="reportViewRecord.checkStatus" /></span></div>
+          <div class="detail-item"><span class="detail-label">提交时间</span><span class="detail-value">{{ reportViewRecord.submitTime || '—' }}</span></div>
+          <div class="detail-item full"><span class="detail-label">当日工作开展情况</span><span class="detail-value">{{ reportViewRecord.workContent || '—' }}</span></div>
+          <div class="detail-item full"><span class="detail-label">今日新增问题</span><span class="detail-value">{{ reportViewRecord.newIssues || '无' }}</span></div>
+        </div>
+      </template>
+      <template slot="footer">
+        <a-button @click="reportViewVisible = false">关闭</a-button>
       </template>
     </a-modal>
 
@@ -355,7 +370,7 @@ export default {
         keyword: ''
       },
       pagination: { pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
-      statusOptions: ['待受理', '办理中', '销项审批中', '已销项'],
+      statusOptions: ['办理中', '销项审批中', '已销项'],
       sourceOptions: ['工程部梳理', '项目反馈', '日报', '现场', '其他'],
       formVisible: false,
       formMode: 'create',
@@ -373,15 +388,14 @@ export default {
         attachments: []
       },
       editingDueDate: '',
-      progressVisible: false,
-      progressContent: '',
-      progressRecord: null,
       closeVisible: false,
       closeReason: '',
       closeAttachments: [],
       closeRecord: null,
       detailVisible: false,
       current: null,
+      reportViewVisible: false,
+      reportViewRecord: null,
       approvalVisible: false,
       approvalRecord: null
     }
@@ -440,7 +454,7 @@ export default {
         { title: '诉求事项', dataIndex: 'title', width: 170, scopedSlots: { customRender: 'cellTitle' } },
         { title: '所属项目', dataIndex: 'projectName', width: 130 },
         { title: '主责部门', dataIndex: 'deptName', width: 115 },
-        { title: '责任人', dataIndex: 'personName', width: 70 },
+        { title: '承办人', dataIndex: 'personName', width: 70 },
         { title: '推进计划', dataIndex: 'plan', width: 110, scopedSlots: { customRender: 'plan' } },
         { title: '完成时限', dataIndex: 'dueDate', width: 138, scopedSlots: { customRender: 'due' } },
         { title: '最新进展', dataIndex: 'latestProgress', width: 120, scopedSlots: { customRender: 'latest' } },
@@ -448,9 +462,20 @@ export default {
         { title: '操作', width: 180, scopedSlots: { customRender: 'action' } }
       ]
     },
-    currentProgress () {
-      if (!this.current) return []
-      return this.current.progress.slice().reverse()
+    currentReports () {
+      return this.current ? this.$store.reportsForAppeal(this.current.id) : []
+    },
+    dailyReportColumns () {
+      return [
+        { title: '日期', dataIndex: 'date', width: 92 },
+        { title: '填报人', dataIndex: 'personName', width: 68 },
+        { title: '项目', dataIndex: 'projectName', width: 120 },
+        { title: '到岗', dataIndex: 'attend', width: 48, align: 'center', scopedSlots: { customRender: 'attend' } },
+        { title: '当日工作开展情况摘要', dataIndex: 'workContent', width: 220, scopedSlots: { customRender: 'workSummary' } },
+        { title: '今日新增问题', dataIndex: 'newIssues', width: 120, scopedSlots: { customRender: 'issues' } },
+        { title: '校核状态', dataIndex: 'checkStatus', width: 80, scopedSlots: { customRender: 'checkStatus' } },
+        { title: '操作', width: 56, align: 'center', scopedSlots: { customRender: 'action' } }
+      ]
     },
     approvalNodes () {
       return this.approvalRecord && this.approvalRecord.closeRequest ? this.approvalRecord.closeRequest.nodes : []
@@ -488,21 +513,9 @@ export default {
     isOverdue (record) {
       return checkOverdue(record.dueDate, record.status)
     },
-    latestTime (record) {
-      if (!record.progress || !record.progress.length) return ''
-      return record.progress[record.progress.length - 1].time
-    },
-    progressColor (source) {
-      if (source === '日报') return 'green'
-      if (source === '销项') return 'blue'
-      if (source === '受理') return 'blue'
-      return 'gray'
-    },
-    sourceColor (source) {
-      if (source === '日报') return 'green'
-      if (source === '销项') return 'blue'
-      if (source === '受理') return 'cyan'
-      return ''
+    openReportView (record) {
+      this.reportViewRecord = record
+      this.reportViewVisible = true
     },
     query () {
       this.applied = { ...this.filters }
@@ -562,11 +575,11 @@ export default {
       }
     },
     onPersonChange () {
-      // 主责部门随责任人带出
+      // 主责部门随承办人带出
     },
     saveAppeal () {
       if (!this.form.projectId) return this.$message.warning('请选择所属项目')
-      if (!this.form.personId) return this.$message.warning('请选择总部帮扶责任人')
+      if (!this.form.personId) return this.$message.warning('请选择承办人')
       if (!this.form.title || !this.form.title.trim()) return this.$message.warning('请填写诉求事项')
       if (!this.form.desc || !this.form.desc.trim()) return this.$message.warning('请填写具体描述')
       if (!this.form.plan || !this.form.plan.trim()) return this.$message.warning('请填写推进计划')
@@ -612,29 +625,6 @@ export default {
       this.formVisible = false
       this.query()
     },
-    acceptAppeal (record) {
-      this.$confirm({
-        title: '受理项目诉求',
-        content: `确认受理“${record.title}”并由 ${record.personName} 跟进办理？`,
-        okText: '受理',
-        cancelText: '取消',
-        onOk: () => {
-          this.$store.acceptAppeal(record.id)
-          this.$message.success('诉求已受理，状态变更为办理中')
-        }
-      })
-    },
-    openProgress (record) {
-      this.progressRecord = record
-      this.progressContent = ''
-      this.progressVisible = true
-    },
-    saveProgress () {
-      if (!this.progressContent.trim()) return this.$message.warning('请填写办理进展')
-      this.$store.addAppealProgress(this.progressRecord.id, this.progressContent)
-      this.progressVisible = false
-      this.$message.success('办理进展已记录，并同步到诉求时间线')
-    },
     openClose (record) {
       this.closeRecord = record
       this.closeReason = ''
@@ -666,7 +656,7 @@ export default {
       const res = this.$store.approveAppealClose(record.id, action, comment)
       if (!res.ok) return this.$message.error(res.message)
       this.approvalVisible = false
-      this.$message.success(action === 'pass' ? (record.status === '已销项' ? '销项审批通过，诉求已办结归档' : '审批节点已通过') : '销项申请已退回责任人补充材料')
+      this.$message.success(action === 'pass' ? (record.status === '已销项' ? '销项审批通过，诉求已办结归档' : '审批节点已通过') : '销项申请已退回承办人补充材料')
     },
     exportExcel () {
       exportAppealsExcel(this.applied.projectId)
@@ -732,19 +722,15 @@ export default {
   font-size: 13px;
   color: #5b7189;
 }
-.progress-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
+.summary-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 18px;
 }
-.progress-text {
-  font-size: 12.5px;
-  color: #3a4d61;
-  line-height: 19px;
-  margin-top: 4px;
-  white-space: pre-wrap;
-}
+
 .close-empty {
   font-size: 12px;
   color: #9aabbf;

@@ -21,8 +21,7 @@
             <div class="mine-stat"><span>应填日报</span><b>{{ myStats.due }}</b></div>
             <div class="mine-stat"><span>已提交</span><b class="green">{{ myStats.submitted }}</b></div>
             <div class="mine-stat"><span>待填写</span><b class="red">{{ myStats.pending }}</b></div>
-            <div class="mine-stat"><span>在办诉求</span><b>{{ myStats.appeals }}</b></div>
-            <div class="mine-stat"><span>待反馈诉求</span><b class="orange">{{ myStats.unfed }}</b></div>
+            <div class="mine-stat"><span>关联诉求</span><b>{{ myStats.appeals }}</b></div>
           </div>
 
           <div v-if="mineDateIsFuture" class="alert-note warn" style="margin-top:12px;">
@@ -52,9 +51,7 @@
               <div class="mine-card-needs">{{ report.projectNeeds }}</div>
               <div class="mine-card-foot">
                 <div class="mine-counts">
-                  <span>在办诉求 <b>{{ feedbackTotal(report) }}</b></span>
-                  <span>已反馈 <b class="green">{{ feedbackDone(report) }}</b></span>
-                  <span>待反馈 <b class="red">{{ feedbackPending(report) }}</b></span>
+                  <span>关联诉求 <b>{{ (report.appealIds || []).length }}</b></span>
                 </div>
                 <div class="mine-actions">
                   <template v-if="report.frozen">
@@ -142,8 +139,20 @@
             :pagination="allPagination"
             row-key="id"
             size="middle"
-            :scroll="{ x: 1264 }"
+            :scroll="{ x: 1500 }"
           >
+            <div slot="appealTitles" slot-scope="text, record">
+              <template v-if="reportAppeals(record).length">
+                <a
+                  v-for="appeal in reportAppeals(record)"
+                  :key="appeal.id"
+                  class="link-btn appeal-link"
+                  @click="openAppealDetail(appeal.id)"
+                >{{ appeal.title }}</a>
+              </template>
+              <span v-else class="muted">—</span>
+            </div>
+            <div slot="phone" slot-scope="text, record">{{ record.personPhone }}</div>
             <div slot="status" slot-scope="text"><status-tag :status="text" /></div>
             <div slot="checkStatus" slot-scope="text, record">
               <status-tag v-if="record.status === '已提交'" :status="text" />
@@ -162,122 +171,6 @@
               <a class="link-btn" @click="openReport(record, 'admin')">管理员修订</a>
             </div>
           </a-table>
-        </div>
-      </a-tab-pane>
-
-      <!-- 诉求填报监控 -->
-      <a-tab-pane key="monitor">
-        <span slot="tab"><a-icon type="audit" /> 诉求填报监控</span>
-        <div class="tab-body">
-          <div class="monitor-head">
-            <div class="monitor-date">
-              <span class="mine-toolbar-label">监控日期</span>
-              <a-date-picker v-model="monitorDate" :allow-clear="false" style="width: 160px" @change="applyMonitorFilter" />
-            </div>
-            <div class="alert-note" style="flex:1;margin:0;">
-              <a-icon type="info-circle" />
-              日报已提交不代表每条诉求均已反馈。日报提交率按“已提交人员-项目任务÷应填任务”计算，诉求反馈率按“已反馈在办诉求÷应反馈在办诉求”计算。
-            </div>
-          </div>
-
-          <div class="stat-strip monitor-stats">
-            <div class="stat-cell"><div class="stat-label">应填日报数</div><div class="stat-value">{{ monitorStats.due }}</div></div>
-            <div class="stat-cell"><div class="stat-label">已提交日报数</div><div class="stat-value blue">{{ monitorStats.submitted }}</div></div>
-            <div class="stat-cell"><div class="stat-label">未提交日报数</div><div class="stat-value red">{{ monitorStats.unsubmitted }}</div></div>
-            <div class="stat-cell"><div class="stat-label">日报提交率</div><div class="stat-value">{{ monitorStats.submitRate }}<small>%</small></div></div>
-            <div class="stat-cell"><div class="stat-label">在办诉求应反馈</div><div class="stat-value">{{ monitorStats.required }}</div></div>
-            <div class="stat-cell"><div class="stat-label">已反馈诉求</div><div class="stat-value green">{{ monitorStats.fed }}</div></div>
-            <div class="stat-cell"><div class="stat-label">未反馈诉求</div><div class="stat-value red">{{ monitorStats.unfed }}</div></div>
-            <div class="stat-cell"><div class="stat-label">诉求反馈率</div><div class="stat-value green">{{ monitorStats.feedbackRate }}<small>%</small></div></div>
-          </div>
-
-          <div class="filter-bar" style="margin-top:12px;">
-            <a-form layout="inline">
-              <a-form-item label="项目">
-                <a-select v-model="monitorFilters.projectId" placeholder="全部项目" allow-clear show-search option-filter-prop="children" style="width: 180px">
-                  <a-select-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
-                </a-select>
-              </a-form-item>
-              <a-form-item label="主责部门">
-                <a-select v-model="monitorFilters.deptId" placeholder="全部部门" allow-clear show-search option-filter-prop="children" style="width: 170px">
-                  <a-select-option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</a-select-option>
-                </a-select>
-              </a-form-item>
-              <a-form-item label="责任人">
-                <a-select v-model="monitorFilters.personId" placeholder="全部人员" allow-clear show-search option-filter-prop="children" style="width: 140px">
-                  <a-select-option v-for="p in people" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
-                </a-select>
-              </a-form-item>
-              <a-form-item label="日报状态">
-                <a-select v-model="monitorFilters.reportStatus" placeholder="全部" allow-clear style="width: 110px">
-                  <a-select-option v-for="s in ['未填写', '草稿', '已提交']" :key="s" :value="s">{{ s }}</a-select-option>
-                </a-select>
-              </a-form-item>
-              <a-form-item label="诉求反馈">
-                <a-select v-model="monitorFilters.feedbackStatus" placeholder="全部" allow-clear style="width: 150px">
-                  <a-select-option v-for="s in feedbackOptions" :key="s" :value="s">{{ s }}</a-select-option>
-                </a-select>
-              </a-form-item>
-              <a-form-item label="关键词">
-                <a-input v-model="monitorFilters.keyword" placeholder="项目 / 诉求 / 责任人" allow-clear style="width: 190px" />
-              </a-form-item>
-              <a-form-item>
-                <div class="filter-actions">
-                  <a-button type="primary" @click="applyMonitorFilter"><a-icon type="search" /> 查询</a-button>
-                  <a-button @click="resetMonitorFilter"><a-icon type="reload" /> 重置</a-button>
-                </div>
-              </a-form-item>
-            </a-form>
-          </div>
-
-          <a-table
-            :columns="monitorColumns"
-            :data-source="monitorFilteredRows"
-            :pagination="monitorPagination"
-            row-key="appealId"
-            size="middle"
-            :scroll="{ x: 1270 }"
-            :row-class-name="monitorRowClass"
-          >
-            <div slot="project" slot-scope="text, record">
-              <a v-if="record.reportId" class="link-btn" @click="openMonitorReport(record)">{{ text }}</a>
-              <span v-else>{{ text }}</span>
-            </div>
-            <div slot="appealTitle" slot-scope="text, record">
-              <a class="link-btn appeal-title-link" @click="openMonitorAppeal(record)">{{ text }}</a>
-            </div>
-            <div slot="person" slot-scope="text, record">
-              <a-popover trigger="click" placement="right">
-                <template slot="content">
-                  <div class="contact-card">
-                    <div><span class="muted">姓名：</span>{{ record.personName }}</div>
-                    <div><span class="muted">部门：</span>{{ record.deptName }}</div>
-                    <div><span class="muted">联系电话：</span>{{ record.personPhone }}</div>
-                    <div><span class="muted">负责项目：</span>{{ record.projectName }}</div>
-                  </div>
-                </template>
-                <a>{{ text }}</a>
-              </a-popover>
-            </div>
-            <div slot="reportStatus" slot-scope="text, record">
-              <a v-if="record.reportId" class="link-btn" @click="openMonitorReport(record)">{{ text }}</a>
-              <status-tag v-else :status="text" />
-            </div>
-            <div slot="feedback" slot-scope="text">
-              <status-tag :status="text" />
-            </div>
-            <div slot="attend" slot-scope="text">
-              <a-tag :color="text === '是' ? 'green' : (text === '否' ? 'orange' : '')">{{ text }}</a-tag>
-            </div>
-            <div slot="action" slot-scope="text, record" class="table-actions">
-              <a class="link-btn" @click="openMonitorReport(record)">查看日报</a>
-              <a-divider type="vertical" />
-              <a class="link-btn" @click="openMonitorAppeal(record)">诉求详情</a>
-            </div>
-          </a-table>
-          <div class="monitor-legend muted">
-            红色行为当日未反馈的在办诉求；可点击责任人查看联系方式，便于企划部线下提醒。点击“查看日报”定位对应人员-项目日报。
-          </div>
         </div>
       </a-tab-pane>
 
@@ -401,46 +294,28 @@
 
         <div class="drawer-section">
           <div class="drawer-section-title">
-            在办诉求反馈
-            <span class="extra">共 {{ reportForm.feedbacks.length }} 条</span>
+            关联诉求
+            <span class="extra">选填，可多选</span>
           </div>
-          <div v-if="reportForm.attend === false" class="alert-note" style="margin-bottom:10px;">
-            <a-icon type="info-circle" /> 当前选择“未到岗”，诉求反馈允许不填写，监控中将显示“因未到岗未反馈”。
+          <div class="form-tip" style="margin-bottom:8px;">
+            仅可选择本人当前项目下“办理中”的诉求；未勾选不会自动关联。关联后可在诉求详情中查看本日报。
           </div>
-          <div v-for="(fb, index) in reportForm.feedbacks" :key="fb.appealId" class="feedback-card">
-            <div class="feedback-head">
-              <span class="feedback-index">{{ index + 1 }}</span>
-              <span class="feedback-title">{{ fb.appealTitle }}</span>
-              <a-tag v-if="appealStatus(fb.appealId)" :color="appealStatus(fb.appealId) === '办理中' ? 'blue' : ''">{{ appealStatus(fb.appealId) }}</a-tag>
-            </div>
-            <div class="feedback-latest">
-              <span class="muted">最近进展：</span>{{ fb.latestProgress || '暂无' }}
-            </div>
-            <div class="feedback-row">
-              <span class="feedback-label">今日反馈类型 <span class="danger-text">*</span></span>
-              <a-radio-group
-                v-model="fb.type"
-                size="small"
-                :disabled="!reportEditable || reportForm.attend === false || appealStatus(fb.appealId) !== '办理中'"
-              >
-                <a-radio value="有新进展">有新进展</a-radio>
-                <a-radio value="无新进展">无新进展</a-radio>
-              </a-radio-group>
-            </div>
-            <div v-if="fb.type === '有新进展'" class="feedback-row">
-              <span class="feedback-label">当日诉求进展 <span class="danger-text">*</span></span>
-              <a-textarea v-model="fb.content" :rows="2" :max-length="300" :disabled="!reportEditable || appealStatus(fb.appealId) !== '办理中'" placeholder="填写该诉求今日具体办理进展" />
-            </div>
-            <div v-if="fb.type" class="feedback-row">
-              <span class="feedback-label">新发现问题</span>
-              <a-input v-model="fb.newIssue" :disabled="!reportEditable" placeholder="可选，不自动生成新诉求" />
-            </div>
-            <div v-if="fb.type" class="feedback-row">
-              <span class="feedback-label">反馈附件</span>
-              <file-uploader v-model="fb.attachments" :readonly="!reportEditable" />
-            </div>
+          <a-select
+            v-model="reportForm.appealIds"
+            mode="multiple"
+            :disabled="!reportEditable"
+            placeholder="选择本日报关联的诉求事项"
+            option-filter-prop="children"
+            show-search
+            style="width: 100%"
+          >
+            <a-select-option v-for="a in reportAppealOptions" :key="a.id" :value="a.id">
+              {{ a.title }}（{{ a.id }}）
+            </a-select-option>
+          </a-select>
+          <div v-if="reportForm.appealIds.length" class="selected-appeals">
+            已关联 {{ reportForm.appealIds.length }} 条诉求
           </div>
-          <div v-if="!reportForm.feedbacks.length" class="empty-hint">该项目当日没有需要反馈的在办诉求</div>
         </div>
 
         <div v-if="reportMode === 'admin'">
@@ -477,6 +352,46 @@
     </a-modal>
 
     <a-modal
+      title="诉求详情"
+      :visible="appealDetailVisible"
+      :width="820"
+      @cancel="appealDetailVisible = false"
+    >
+      <template v-if="appealDetailCurrent">
+        <div class="appeal-head">
+          <div class="appeal-id">{{ appealDetailCurrent.id }} · {{ appealDetailCurrent.projectName }}</div>
+          <status-tag :status="appealDetailCurrent.status" />
+        </div>
+        <div class="detail-grid">
+          <div class="detail-item"><span class="detail-label">承办人</span><span class="detail-value">{{ appealDetailCurrent.personName }}　<span class="muted">{{ appealDetailCurrent.personPhone }}</span></span></div>
+          <div class="detail-item"><span class="detail-label">主责部门</span><span class="detail-value">{{ appealDetailCurrent.deptName }}</span></div>
+          <div class="detail-item"><span class="detail-label">完成时限</span><span class="detail-value">{{ appealDetailCurrent.dueDate }}</span></div>
+          <div class="detail-item"><span class="detail-label">登记时间</span><span class="detail-value">{{ appealDetailCurrent.createdAt }}</span></div>
+          <div class="detail-item full"><span class="detail-label">具体描述</span><span class="detail-value">{{ appealDetailCurrent.desc }}</span></div>
+          <div class="detail-item full"><span class="detail-label">推进计划</span><span class="detail-value">{{ appealDetailCurrent.plan }}</span></div>
+          <div class="detail-item full"><span class="detail-label">最新进展</span><span class="detail-value">{{ appealDetailCurrent.latestProgress }}</span></div>
+        </div>
+        <div class="drawer-section" style="margin-top:14px;">
+          <div class="drawer-section-title">关联的已提交日报</div>
+          <a-table
+            :columns="appealReportColumns"
+            :data-source="appealDetailReports"
+            :pagination="false"
+            size="small"
+            row-key="id"
+            :scroll="{ x: 760 }"
+          >
+            <div slot="workSummary" slot-scope="text" class="summary-cell" :title="text">{{ text }}</div>
+          </a-table>
+          <div v-if="!appealDetailReports.length" class="empty-hint">暂无关联日报</div>
+        </div>
+      </template>
+      <template slot="footer">
+        <a-button @click="appealDetailVisible = false">关闭</a-button>
+      </template>
+    </a-modal>
+
+    <a-modal
       title="企划校核"
       :visible="checkVisible"
       :width="560"
@@ -499,15 +414,14 @@
 <script>
 import moment from 'moment'
 import StatusTag from '../components/StatusTag.vue'
-import FileUploader from '../components/FileUploader.vue'
-import { todayStr, fmtDate, weekRange } from '../utils/date'
+import { todayStr, fmtDate, weekRange, isFrozen } from '../utils/date'
 import { buildWeeklyReport } from '../utils/reportData'
 import { exportDailyExcel, exportWeeklyExcel } from '../utils/exportExcel'
 import { printDailyReport, printWeeklyReport } from '../utils/printReport'
 
 export default {
   name: 'DailyView',
-  components: { StatusTag, FileUploader },
+  components: { StatusTag },
   data () {
     const week = weekRange(0)
     return {
@@ -516,20 +430,17 @@ export default {
       allFilters: { date: moment(), projectId: undefined, personId: undefined, deptId: undefined, status: undefined, checkStatus: undefined },
       appliedAll: { date: todayStr(), projectId: undefined, personId: undefined, deptId: undefined, status: undefined, checkStatus: undefined },
       allPagination: { pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
-      monitorDate: moment(),
-      monitorFilters: { projectId: undefined, deptId: undefined, personId: undefined, reportStatus: undefined, feedbackStatus: undefined, keyword: '' },
-      appliedMonitor: { projectId: undefined, deptId: undefined, personId: undefined, reportStatus: undefined, feedbackStatus: undefined, keyword: '' },
-      monitorPagination: { pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
-      feedbackOptions: ['待反馈', '有新进展', '无新进展', '因未到岗未反馈'],
       reportWeek: [moment(week[0]), moment(week[1])],
       reportDrawerVisible: false,
       reportCurrent: null,
       reportMode: 'mine',
-      reportForm: { attend: null, absentReason: '', workContent: '', newIssues: '', feedbacks: [] },
+      reportForm: { attend: null, absentReason: '', workContent: '', newIssues: '', appealIds: [] },
       adminReason: '',
       checkVisible: false,
       checkRecord: null,
-      checkRemark: ''
+      checkRemark: '',
+      appealDetailVisible: false,
+      appealDetailCurrent: null
     }
   },
   computed: {
@@ -552,14 +463,12 @@ export default {
     },
     myStats () {
       const submitted = this.myReports.filter(r => r.status === '已提交').length
-      const appeals = this.myReports.reduce((sum, r) => sum + this.reportAppeals(r).length, 0)
-      const unfed = this.myReports.reduce((sum, r) => sum + this.feedbackPending(r), 0)
+      const appeals = this.myReports.reduce((sum, r) => sum + (r.appealIds || []).length, 0)
       return {
         due: this.myReports.length,
         submitted,
         pending: this.myReports.length - submitted,
-        appeals,
-        unfed
+        appeals
       }
     },
     mineDateIsFuture () {
@@ -590,63 +499,39 @@ export default {
     allColumns () {
       return [
         { title: '序号', width: 54, align: 'center', customRender: (text, record, index) => index + 1 },
-        { title: '日期', dataIndex: 'date', width: 100 },
-        { title: '姓名', dataIndex: 'personName', width: 74 },
-        { title: '部门', dataIndex: 'deptName', width: 150 },
-        { title: '项目', dataIndex: 'projectName', width: 180 },
-        { title: '填报状态', dataIndex: 'status', width: 90, scopedSlots: { customRender: 'status' } },
-        { title: '校核状态', dataIndex: 'checkStatus', width: 104, scopedSlots: { customRender: 'checkStatus' } },
-        { title: '冻结状态', dataIndex: 'frozen', width: 90, scopedSlots: { customRender: 'frozen' } },
-        { title: '是否到岗', dataIndex: 'attend', width: 80, align: 'center', scopedSlots: { customRender: 'attend' } },
-        { title: '提交时间', dataIndex: 'submitTime', width: 142, scopedSlots: { customRender: 'submitTime' } },
-        { title: '操作', width: 190, scopedSlots: { customRender: 'action' } }
+        { title: '日期', dataIndex: 'date', width: 96 },
+        { title: '姓名', dataIndex: 'personName', width: 72 },
+        { title: '联系方式', dataIndex: 'personPhone', width: 118, scopedSlots: { customRender: 'phone' } },
+        { title: '部门', dataIndex: 'deptName', width: 140 },
+        { title: '项目', dataIndex: 'projectName', width: 165 },
+        { title: '对应诉求事项', dataIndex: 'appealIds', width: 190, scopedSlots: { customRender: 'appealTitles' } },
+        { title: '填报状态', dataIndex: 'status', width: 86, scopedSlots: { customRender: 'status' } },
+        { title: '校核状态', dataIndex: 'checkStatus', width: 100, scopedSlots: { customRender: 'checkStatus' } },
+        { title: '冻结状态', dataIndex: 'frozen', width: 86, scopedSlots: { customRender: 'frozen' } },
+        { title: '是否到岗', dataIndex: 'attend', width: 76, align: 'center', scopedSlots: { customRender: 'attend' } },
+        { title: '提交时间', dataIndex: 'submitTime', width: 136, scopedSlots: { customRender: 'submitTime' } },
+        { title: '操作', width: 186, scopedSlots: { customRender: 'action' } }
       ]
     },
-    monitorRows () {
-      return this.$store.monitorRows(fmtDate(this.monitorDate))
+    reportAppealOptions () {
+      if (!this.reportCurrent) return []
+      return this.$store.db.appeals.filter(a =>
+        a.personId === this.reportCurrent.personId &&
+        a.projectId === this.reportCurrent.projectId &&
+        a.status === '办理中'
+      )
     },
-    monitorFilteredRows () {
-      const f = this.appliedMonitor
-      let rows = this.monitorRows
-      if (f.projectId) rows = rows.filter(r => r.projectId === f.projectId)
-      if (f.deptId) rows = rows.filter(r => r.deptName === this.deptName(f.deptId))
-      if (f.personId) rows = rows.filter(r => r.personId === f.personId)
-      if (f.reportStatus) rows = rows.filter(r => r.reportStatus === f.reportStatus)
-      if (f.feedbackStatus) rows = rows.filter(r => r.feedbackStatus === f.feedbackStatus)
-      if (f.keyword) {
-        const kw = f.keyword.trim()
-        rows = rows.filter(r => `${r.projectName}${r.title}${r.personName}${r.deptName}`.indexOf(kw) > -1)
-      }
-      return rows
+    appealDetailReports () {
+      return this.appealDetailCurrent ? this.$store.reportsForAppeal(this.appealDetailCurrent.id) : []
     },
-    monitorStats () {
-      const due = this.$store.reportsForDate(fmtDate(this.monitorDate))
-      const submitted = due.filter(r => r.status === '已提交').length
-      const requiredRows = this.monitorRows.filter(r => r.required)
-      const fed = requiredRows.filter(r => r.feedbackType === '有新进展' || r.feedbackType === '无新进展').length
-      return {
-        due: due.length,
-        submitted,
-        unsubmitted: due.length - submitted,
-        submitRate: due.length ? Math.round((submitted / due.length) * 1000) / 10 : 0,
-        required: requiredRows.length,
-        fed,
-        unfed: requiredRows.length - fed,
-        feedbackRate: requiredRows.length ? Math.round((fed / requiredRows.length) * 1000) / 10 : 0
-      }
-    },
-    monitorColumns () {
+    appealReportColumns () {
       return [
-        { title: '项目', dataIndex: 'projectName', width: 140, scopedSlots: { customRender: 'project' } },
-        { title: '诉求事项', dataIndex: 'title', width: 210, scopedSlots: { customRender: 'appealTitle' } },
-        { title: '总部责任人', dataIndex: 'personName', width: 90, scopedSlots: { customRender: 'person' } },
-        { title: '主责部门', dataIndex: 'deptName', width: 135 },
-        { title: '联系方式', dataIndex: 'personPhone', width: 110 },
-        { title: '当日日报状态', dataIndex: 'reportStatus', width: 110, scopedSlots: { customRender: 'reportStatus' } },
-        { title: '今日诉求反馈', dataIndex: 'feedbackStatus', width: 120, scopedSlots: { customRender: 'feedback' } },
-        { title: '到岗情况', dataIndex: 'attend', width: 80, scopedSlots: { customRender: 'attend' } },
-        { title: '最新进展时间', dataIndex: 'lastProgressTime', width: 125 },
-        { title: '操作', width: 150, scopedSlots: { customRender: 'action' } }
+        { title: '日期', dataIndex: 'date', width: 90 },
+        { title: '填报人', dataIndex: 'personName', width: 70 },
+        { title: '项目', dataIndex: 'projectName', width: 130 },
+        { title: '到岗', dataIndex: 'attend', width: 50, align: 'center', customRender: text => text === true ? '是' : (text === false ? '否' : '未填') },
+        { title: '当日工作开展情况摘要', dataIndex: 'workContent', width: 260, scopedSlots: { customRender: 'workSummary' } },
+        { title: '校核状态', dataIndex: 'checkStatus', width: 90 }
       ]
     },
     weekly () {
@@ -703,23 +588,21 @@ export default {
   methods: {
     applyTabQuery () {
       const tab = this.$route.query.tab
-      if (tab && ['mine', 'all', 'monitor', 'weekly'].indexOf(tab) > -1) this.activeTab = tab
+      if (tab && ['mine', 'all', 'weekly'].indexOf(tab) > -1) this.activeTab = tab
     },
     deptName (id) {
       const dept = this.$store.getDept(id)
       return dept ? dept.name : id
     },
     reportAppeals (report) {
-      return this.$store.feedbackAppeals(report.personId, report.projectId)
+      const ids = report.appealIds || []
+      return this.$store.db.appeals.filter(a => ids.indexOf(a.id) > -1)
     },
-    feedbackTotal (report) {
-      return this.reportAppeals(report).length
-    },
-    feedbackDone (report) {
-      return this.reportAppeals(report).filter(a => (report.feedbacks || []).some(f => f.appealId === a.id && f.type)).length
-    },
-    feedbackPending (report) {
-      return this.feedbackTotal(report) - this.feedbackDone(report)
+    openAppealDetail (appealId) {
+      const appeal = this.$store.db.appeals.find(a => a.id === appealId)
+      if (!appeal) return
+      this.appealDetailCurrent = appeal
+      this.appealDetailVisible = true
     },
     backToToday () {
       this.mineDate = moment()
@@ -732,45 +615,23 @@ export default {
       this.allFilters = { date: moment(), projectId: undefined, personId: undefined, deptId: undefined, status: undefined, checkStatus: undefined }
       this.applyAllFilter()
     },
-    applyMonitorFilter () {
-      this.appliedMonitor = { ...this.monitorFilters }
-      this.monitorPagination = { ...this.monitorPagination, current: 1 }
-    },
-    resetMonitorFilter () {
-      this.monitorFilters = { projectId: undefined, deptId: undefined, personId: undefined, reportStatus: undefined, feedbackStatus: undefined, keyword: '' }
-      this.applyMonitorFilter()
-    },
     setWeek (type) {
       const week = weekRange(type === 'last' ? -1 : 0)
       this.reportWeek = [moment(week[0]), moment(week[1])]
     },
     openReport (report, mode) {
-      this.$store.ensureReportFeedbacks(report)
       this.reportCurrent = report
       this.reportMode = mode
+      report.frozen = isFrozen(report.date)
       this.reportForm = {
         attend: report.attend,
         absentReason: report.absentReason || '',
         workContent: report.workContent || '',
         newIssues: report.newIssues || '',
-        feedbacks: JSON.parse(JSON.stringify(report.feedbacks || []))
+        appealIds: (report.appealIds || []).slice()
       }
       this.adminReason = ''
       this.reportDrawerVisible = true
-    },
-    openMonitorReport (record) {
-      if (!record.reportId) return
-      const report = this.$store.db.dailyReports.find(r => r.id === record.reportId)
-      if (!report) return
-      const editable = report.personId === this.$store.currentUser.id && !report.frozen
-      this.openReport(report, editable ? 'mine' : 'view')
-    },
-    openMonitorAppeal (record) {
-      this.$router.push({ path: '/appeals', query: { id: record.appealId } })
-    },
-    appealStatus (appealId) {
-      const appeal = this.$store.db.appeals.find(a => a.id === appealId)
-      return appeal ? appeal.status : ''
     },
     validateReport () {
       if (this.reportForm.attend === null || typeof this.reportForm.attend === 'undefined') {
@@ -785,21 +646,6 @@ export default {
         this.$message.warning('到岗时需填写当日工作开展情况')
         return false
       }
-      if (this.reportForm.attend === true) {
-        const activeIds = this.reportAppeals(this.reportCurrent).map(a => a.id)
-        for (let i = 0; i < this.reportForm.feedbacks.length; i++) {
-          const fb = this.reportForm.feedbacks[i]
-          if (activeIds.indexOf(fb.appealId) === -1) continue
-          if (!fb.type) {
-            this.$message.warning(`请处理在办诉求“${fb.appealTitle}”：选择有新进展或无新进展`)
-            return false
-          }
-          if (fb.type === '有新进展' && !fb.content.trim()) {
-            this.$message.warning(`请填写“${fb.appealTitle}”的当日诉求进展`)
-            return false
-          }
-        }
-      }
       return true
     },
     saveDraft () {
@@ -813,7 +659,7 @@ export default {
       const res = this.$store.saveReport(this.reportCurrent.id, this.reportForm, 'submit')
       if (!res.ok) return this.$message.error(res.message)
       this.reportDrawerVisible = false
-      this.$message.success('日报已提交，企划监控数据已同步更新')
+      this.$message.success('日报已提交，关联诉求已同步更新')
     },
     saveAdminRevision () {
       if (!this.adminReason.trim()) return this.$message.warning('请填写修订原因')
@@ -831,9 +677,6 @@ export default {
       this.$store.checkReport(this.checkRecord.id, this.checkRemark)
       this.checkVisible = false
       this.$message.success('日报已校核')
-    },
-    monitorRowClass (record) {
-      return record.required && !record.feedbackType ? 'row-unfed' : ''
     },
     exportDailyExcelByDate () {
       const date = this.appliedAll.date || todayStr()
@@ -873,7 +716,7 @@ export default {
 }
 .mine-stats {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   border: 1px solid #e8eff7;
   border-radius: 3px;
   background: #fbfdff;
@@ -1012,41 +855,6 @@ export default {
 .inline-stats b.green { color: #20a06b; }
 .inline-stats b.red { color: #e04b4b; }
 .inline-stats b.orange { color: #fa8c16; }
-.monitor-head {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 12px;
-}
-.monitor-date {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-}
-.monitor-stats {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-.contact-card {
-  font-size: 12.5px;
-  line-height: 21px;
-  min-width: 180px;
-}
-.appeal-title-link {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-align: left;
-  line-height: 18px;
-}
-.row-unfed td {
-  background: #fff7f7 !important;
-}
-.monitor-legend {
-  margin-top: 10px;
-  font-size: 11.5px;
-}
 .weekly-toolbar {
   display: flex;
   align-items: center;
@@ -1091,64 +899,35 @@ export default {
   margin-top: 12px;
   font-size: 11.5px;
 }
-.feedback-card {
-  border: 1px solid #e8eff7;
-  border-radius: 3px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
-  background: #fcfdff;
+.appeal-link {
+  display: block;
+  text-align: left;
+  line-height: 18px;
+  margin-bottom: 2px;
 }
-.feedback-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 5px;
+.summary-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 18px;
 }
-.feedback-index {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #e8f3ff;
+.selected-appeals {
+  margin-top: 8px;
+  font-size: 12px;
   color: #1890ff;
-  font-size: 11px;
+}
+.appeal-head {
   display: flex;
   align-items: center;
-  justify-content: center;
-  flex: none;
+  justify-content: space-between;
+  margin-bottom: 12px;
 }
-.feedback-title {
+.appeal-id {
   font-size: 13px;
   font-weight: 600;
   color: #2c4359;
-}
-.feedback-latest {
-  font-size: 12px;
-  color: #5b7189;
-  line-height: 18px;
-  background: #f8fbfe;
-  padding: 5px 8px;
-  border-radius: 2px;
-  margin-bottom: 8px;
-}
-.feedback-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-.feedback-label {
-  width: 112px;
-  flex: none;
-  font-size: 12.5px;
-  color: #4a5d72;
-  padding-top: 5px;
-}
-.feedback-row > .ant-radio-group,
-.feedback-row > .ant-input,
-.feedback-row > .ant-input-affix-wrapper,
-.feedback-row > *:not(.feedback-label) {
-  flex: 1;
-  min-width: 0;
 }
 .empty-hint {
   font-size: 12px;

@@ -1259,7 +1259,7 @@ function buildReports (relations, appeals) {
     })
   })
 
-  // 今日：当前用户一个项目已提交（部分诉求待反馈），另一个项目未填写
+  // 今日：当前用户一个项目已提交（部分诉求未关联），另一个项目未填写
   const todayOne = reports.find(r => r.date === today && r.personId === 'P01' && r.projectId === 'J01')
   if (todayOne) {
     todayOne.status = '已提交'

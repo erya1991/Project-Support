@@ -21,7 +21,7 @@
         </a-form-item>
         <a-form-item label="建议状态">
           <a-select v-model="filters.status" placeholder="全部" allow-clear style="width: 120px">
-            <a-select-option v-for="s in ['待确认', '已回复', '已归档']" :key="s" :value="s">{{ s }}</a-select-option>
+            <a-select-option v-for="s in ['待确认', '已回复', '已归档', '已退回']" :key="s" :value="s">{{ s }}</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item label="提出日期">
@@ -43,7 +43,7 @@
       <a-button type="primary" @click="openCreate"><a-icon type="plus" /> 新增建议</a-button>
       <a-button @click="exportExcel"><a-icon type="download" /> 导出附件3</a-button>
       <a-button @click="printPdf"><a-icon type="printer" /> 打印 / PDF</a-button>
-      <span class="muted toolbar-tip">部门负责人回复“改/不改”，回复“改”时记录整改计划与完成时限；企划部备案归档。</span>
+      <span class="muted toolbar-tip">部门负责人逐人确认“改/不改”，全部确认后由企划部填写归档意见并归档。</span>
     </div>
 
     <a-table
@@ -62,23 +62,17 @@
         {{ record.confirmers.map(c => c.name).join('、') }}
       </div>
       <div slot="reply" slot-scope="text, record">
-        <template v-if="record.reply">
-          <a-tag :color="record.reply.adopt === '改' ? 'green' : ''">{{ record.reply.adopt }}</a-tag>
-          <span class="reply-text" :title="record.reply.adopt === '改' ? record.reply.plan : record.reply.reason">
-            {{ record.reply.adopt === '改' ? record.reply.plan : record.reply.reason }}
-          </span>
+        <template v-if="replyReplies(record).length">
+          <a-tag :color="replyHasAdopt(record) ? 'green' : ''">{{ replyHasAdopt(record) ? '改' : '不改' }}</a-tag>
+          <span class="reply-text" :title="replySummary(record)">{{ replySummary(record) }}</span>
         </template>
-        <span v-else class="muted">待部门确认</span>
+        <span v-else class="muted">{{ record.status === '已退回' ? '已退回' : '待部门确认' }}</span>
       </div>
       <div slot="createdAt" slot-scope="text">{{ (text || '').slice(0, 10) }}</div>
       <div slot="status" slot-scope="text"><status-tag :status="text" /></div>
       <div slot="action" slot-scope="text, record" class="table-actions">
-        <template v-if="record.status === '待确认'">
-          <a class="link-btn" @click="openReply(record)">部门回复</a>
-          <a-divider type="vertical" />
-        </template>
-        <template v-if="record.status === '已回复'">
-          <a class="link-btn" @click="archive(record)">归档</a>
+        <template v-if="record.status === '待确认' || record.status === '已回复'">
+          <a class="link-btn" @click="openFlow(record)">流程办理</a>
           <a-divider type="vertical" />
         </template>
         <a class="link-btn" @click="openDetail(record)">详情</a>
@@ -137,6 +131,12 @@
             </a-form-model-item>
           </a-col>
           <a-col :span="24">
+            <a-form-model-item label="部门回复" :label-col="{ span: 4 }" :wrapper-col="{ span: 20 }">
+              <a-textarea :rows="3" disabled placeholder="由部门负责人确认后填写，新增阶段不可编辑" />
+              <div class="form-tip">新增建议时不可代填部门回复，须由所选部门负责人按流程确认。</div>
+            </a-form-model-item>
+          </a-col>
+          <a-col :span="24">
             <a-form-model-item label="附件" :label-col="{ span: 4 }" :wrapper-col="{ span: 20 }">
               <file-uploader v-model="form.attachments" tip="可上传建议说明材料" />
             </a-form-model-item>
@@ -149,49 +149,79 @@
       </template>
     </a-modal>
 
-    <!-- 部门回复 -->
+    <!-- 流程办理 -->
     <a-modal
-      title="部门确认回复"
-      :visible="replyVisible"
-      :width="720"
+      title="制度建议流程办理"
+      :visible="flowVisible"
+      :width="760"
       :mask-closable="false"
-      @cancel="replyVisible = false"
+      @cancel="flowVisible = false"
     >
-      <template v-if="replyRecord">
+      <template v-if="flowRecord">
         <div class="reply-head">
-          <div class="reply-title">{{ replyRecord.title }}</div>
-          <div class="muted">{{ replyRecord.id }} · 主责部门：{{ replyRecord.deptName }}</div>
+          <div class="reply-title">{{ flowRecord.title }}</div>
+          <div class="muted">{{ flowRecord.id }} · 主责部门：{{ flowRecord.deptName }}</div>
         </div>
         <div class="reply-origin">
-          <div><span class="muted">涉及制度/流程：</span>{{ replyRecord.flow }}</div>
-          <div><span class="muted">问题描述：</span>{{ replyRecord.desc }}</div>
+          <div><span class="muted">涉及制度/流程：</span>{{ flowRecord.flow }}</div>
+          <div><span class="muted">问题描述：</span>{{ flowRecord.desc }}</div>
         </div>
-        <a-form-model :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
-          <a-form-model-item label="回复意见" required>
-            <a-radio-group v-model="replyForm.adopt">
-              <a-radio value="改">改（采纳改进）</a-radio>
-              <a-radio value="不改">不改（不采纳）</a-radio>
-            </a-radio-group>
-          </a-form-model-item>
-          <a-form-model-item v-if="replyForm.adopt === '不改'" label="不采纳理由" required>
-            <a-textarea v-model="replyForm.reason" :rows="3" placeholder="请说明不采纳的原因" />
-          </a-form-model-item>
-          <template v-if="replyForm.adopt === '改'">
-            <a-form-model-item label="整改计划" required>
-              <a-textarea v-model="replyForm.plan" :rows="3" placeholder="填写整改措施、责任人和推进安排" />
+
+        <div class="flow-nodes">
+          <div v-for="node in flowRecord.nodes" :key="node.key" class="flow-node" :class="{ active: currentFlowNode && currentFlowNode.key === node.key }">
+            <div class="flow-node-main">
+              <span class="flow-node-name">{{ node.name }}</span>
+              <status-tag :status="node.result" />
+            </div>
+            <div class="flow-node-meta">
+              {{ node.approver }}<span v-if="node.time"> · {{ node.time }}</span>
+            </div>
+            <div v-if="node.comment" class="flow-node-comment">{{ node.comment }}</div>
+          </div>
+        </div>
+
+        <template v-if="currentFlowNode">
+          <div class="alert-note" style="margin:12px 0;">
+            <a-icon type="info-circle" />
+            当前节点：{{ currentFlowNode.name }}，办理人 {{ currentFlowNode.approver }}。
+          </div>
+          <a-form-model v-if="currentFlowNode.type === 'confirmer'" :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
+            <a-form-model-item label="回复意见" required>
+              <a-radio-group v-model="flowForm.adopt">
+                <a-radio value="改">改（采纳改进）</a-radio>
+                <a-radio value="不改">不改（不采纳）</a-radio>
+              </a-radio-group>
             </a-form-model-item>
-            <a-form-model-item label="完成时限" required>
-              <a-date-picker v-model="replyForm.deadline" style="width: 100%" placeholder="请选择计划完成时间" />
+            <a-form-model-item v-if="flowForm.adopt === '不改'" label="不采纳理由" required>
+              <a-textarea v-model="flowForm.reason" :rows="3" placeholder="请说明不采纳的原因" />
             </a-form-model-item>
-          </template>
-          <a-form-model-item label="确认人">
-            <div class="readonly-box">{{ replyRecord.confirmers.map(c => c.name).join('、') }}</div>
-          </a-form-model-item>
-        </a-form-model>
+            <template v-if="flowForm.adopt === '改'">
+              <a-form-model-item label="整改计划" required>
+                <a-textarea v-model="flowForm.plan" :rows="3" placeholder="填写整改措施、责任人和推进安排" />
+              </a-form-model-item>
+              <a-form-model-item label="完成时限" required>
+                <a-date-picker v-model="flowForm.deadline" style="width: 100%" placeholder="请选择计划完成时间" />
+              </a-form-model-item>
+            </template>
+            <a-form-model-item label="补充说明">
+              <a-textarea v-model="flowForm.comment" :rows="2" placeholder="可选，作为本节点办理意见" />
+            </a-form-model-item>
+          </a-form-model>
+          <a-form-model v-else :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
+            <a-form-model-item label="归档意见" required>
+              <a-textarea v-model="flowForm.archiveOpinion" :rows="3" placeholder="填写归档意见，确认后建议状态变为已归档" />
+            </a-form-model-item>
+          </a-form-model>
+        </template>
       </template>
       <template slot="footer">
-        <a-button @click="replyVisible = false">关闭</a-button>
-        <a-button type="primary" @click="saveReply">提交回复</a-button>
+        <a-button @click="flowVisible = false">关闭</a-button>
+        <template v-if="currentFlowNode">
+          <a-button v-if="currentFlowNode.type === 'confirmer'" danger @click="submitFlow('reject')">退回</a-button>
+          <a-button type="primary" @click="submitFlow('pass')">
+            {{ currentFlowNode.type === 'archive' ? '提交归档' : '通过并保存' }}
+          </a-button>
+        </template>
       </template>
     </a-modal>
 
@@ -226,16 +256,36 @@
         </div>
 
         <div class="drawer-section" style="margin-top:16px;">
-          <div class="drawer-section-title">部门回复</div>
-          <template v-if="current.reply">
-            <div class="detail-grid">
-              <div class="detail-item"><span class="detail-label">回复结论</span><span class="detail-value"><a-tag :color="current.reply.adopt === '改' ? 'green' : ''">{{ current.reply.adopt }}</a-tag></span></div>
-              <div class="detail-item"><span class="detail-label">反馈时间</span><span class="detail-value">{{ current.reply.time }}</span></div>
-              <div class="detail-item full"><span class="detail-label">{{ current.reply.adopt === '改' ? '整改计划' : '不采纳理由' }}</span><span class="detail-value">{{ current.reply.adopt === '改' ? current.reply.plan : current.reply.reason }}</span></div>
-              <div class="detail-item"><span class="detail-label">完成时限</span><span class="detail-value">{{ current.reply.deadline || '—' }}</span></div>
+          <div class="drawer-section-title">部门负责人确认意见</div>
+          <div v-for="c in current.confirmers" :key="c.id" class="reply-card">
+            <div class="reply-card-head">
+              <span class="reply-person">{{ c.name }}</span>
+              <span class="muted">{{ c.title }}</span>
+              <status-tag :status="c.status" />
             </div>
-          </template>
-          <div v-else class="empty-hint">待主责部门负责人确认回复</div>
+            <template v-if="c.reply">
+              <div class="reply-line">
+                <a-tag :color="c.reply.adopt === '改' ? 'green' : ''">{{ c.reply.adopt }}</a-tag>
+                <span v-if="c.reply.adopt === '改'">整改计划：{{ c.reply.plan }}</span>
+                <span v-else>不采纳理由：{{ c.reply.reason }}</span>
+              </div>
+              <div class="reply-meta">
+                <span v-if="c.reply.deadline">完成时限：{{ c.reply.deadline }}</span>
+                <span v-if="c.reply.time">确认时间：{{ c.reply.time }}</span>
+              </div>
+              <div v-if="c.reply.comment" class="reply-meta">补充说明：{{ c.reply.comment }}</div>
+            </template>
+            <div v-else class="empty-hint">待该负责人确认</div>
+          </div>
+        </div>
+
+        <div v-if="current.archiveOpinion" class="drawer-section">
+          <div class="drawer-section-title">企划归档意见</div>
+          <div class="detail-grid">
+            <div class="detail-item full"><span class="detail-label">归档意见</span><span class="detail-value">{{ current.archiveOpinion }}</span></div>
+            <div class="detail-item"><span class="detail-label">归档人</span><span class="detail-value">{{ current.archivedBy }}</span></div>
+            <div class="detail-item"><span class="detail-label">归档时间</span><span class="detail-value">{{ current.archivedAt }}</span></div>
+          </div>
         </div>
       </template>
       <template slot="footer">
@@ -263,9 +313,9 @@ export default {
       pagination: { pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
       formVisible: false,
       form: { deptId: undefined, title: '', flow: '', desc: '', confirmerIds: [], attachments: [] },
-      replyVisible: false,
-      replyRecord: null,
-      replyForm: { adopt: '改', reason: '', plan: '', deadline: null },
+      flowVisible: false,
+      flowRecord: null,
+      flowForm: { adopt: '', reason: '', plan: '', deadline: null, comment: '', archiveOpinion: '' },
       detailVisible: false,
       current: null
     }
@@ -295,8 +345,8 @@ export default {
       if (f.proposerId) rows = rows.filter(s => s.proposerId === f.proposerId)
       if (f.status) rows = rows.filter(s => s.status === f.status)
       if (f.adopt) {
-        if (f.adopt === '待回复') rows = rows.filter(s => !s.reply)
-        else rows = rows.filter(s => s.reply && s.reply.adopt === f.adopt)
+        if (f.adopt === '待回复') rows = rows.filter(s => !(s.confirmers || []).some(c => c.reply))
+        else rows = rows.filter(s => (s.confirmers || []).some(c => c.reply && c.reply.adopt === f.adopt))
       }
       if (f.dateRange && f.dateRange.length === 2) {
         const start = fmtDate(f.dateRange[0])
@@ -308,6 +358,10 @@ export default {
         rows = rows.filter(s => `${s.id}${s.title}${s.flow}${s.proposerName}`.indexOf(kw) > -1)
       }
       return rows
+    },
+    currentFlowNode () {
+      if (!this.flowRecord || !this.flowRecord.nodes) return null
+      return this.flowRecord.nodes.find(n => n.result === '待处理') || null
     },
     columns () {
       return [
@@ -359,42 +413,56 @@ export default {
       this.formVisible = false
       this.$message.success('制度改进建议已保存')
     },
-    openReply (record) {
-      this.replyRecord = record
-      this.replyForm = { adopt: '改', reason: '', plan: '', deadline: moment().add(15, 'day') }
-      this.replyVisible = true
+    replyReplies (record) {
+      return (record.confirmers || []).filter(c => c.reply)
+    },
+    replyHasAdopt (record) {
+      return this.replyReplies(record).some(c => c.reply.adopt === '改')
+    },
+    replySummary (record) {
+      const replies = this.replyReplies(record)
+      if (!replies.length) return ''
+      return replies.map(c => `${c.name}：${c.reply.adopt}${c.reply.adopt === '不改' ? `（${c.reply.reason}）` : ''}`).join('；')
+    },
+    openFlow (record) {
+      this.flowRecord = record
+      this.flowForm = { adopt: '改', reason: '', plan: '', deadline: moment().add(15, 'day'), comment: '', archiveOpinion: '' }
+      this.flowVisible = true
       this.detailVisible = false
     },
-    saveReply () {
-      if (!this.replyForm.adopt) return this.$message.warning('请选择回复意见')
-      if (this.replyForm.adopt === '不改' && !this.replyForm.reason.trim()) {
-        return this.$message.warning('回复“不改”需说明理由')
-      }
-      if (this.replyForm.adopt === '改') {
-        if (!this.replyForm.plan.trim()) return this.$message.warning('回复“改”需填写整改计划')
-        if (!this.replyForm.deadline) return this.$message.warning('回复“改”需填写完成时限')
-      }
-      const res = this.$store.replySuggestion(this.replyRecord.id, {
-        adopt: this.replyForm.adopt,
-        reason: this.replyForm.reason,
-        plan: this.replyForm.plan,
-        deadline: fmtDate(this.replyForm.deadline)
-      })
-      if (res && !res.ok) return this.$message.error(res.message)
-      this.replyVisible = false
-      this.$message.success('部门回复已提交')
+    resetFlowForm () {
+      if (!this.currentFlowNode) return
+      this.flowForm = { adopt: '改', reason: '', plan: '', deadline: moment().add(15, 'day'), comment: '', archiveOpinion: '' }
     },
-    archive (record) {
-      this.$confirm({
-        title: '归档制度改进建议',
-        content: `确认将“${record.title}”归档？归档后不建议再次修改回复内容。`,
-        okText: '归档',
-        cancelText: '取消',
-        onOk: () => {
-          this.$store.archiveSuggestion(record.id)
-          this.detailVisible = false
-          this.$message.success('建议已归档')
-        }
+    submitFlow (action) {
+      if (!this.flowRecord || !this.currentFlowNode) return
+      const payload = { comment: this.flowForm.comment }
+      if (this.currentFlowNode.type === 'archive') {
+        payload.archiveOpinion = this.flowForm.archiveOpinion
+      } else if (action === 'pass') {
+        payload.adopt = this.flowForm.adopt
+        payload.reason = this.flowForm.reason
+        payload.plan = this.flowForm.plan
+        payload.deadline = this.flowForm.deadline ? fmtDate(this.flowForm.deadline) : ''
+      } else {
+        payload.reason = this.flowForm.reason || this.flowForm.comment
+      }
+      const res = this.$store.approveSuggestionNode(this.flowRecord.id, action, payload)
+      if (!res.ok) return this.$message.error(res.message)
+      if (res.rejected) {
+        this.$message.success('已退回发起人')
+        this.flowVisible = false
+        return
+      }
+      if (res.archived) {
+        this.$message.success('建议已归档')
+        this.flowVisible = false
+        return
+      }
+      this.$message.success(this.flowRecord.status === '已回复' ? '部门确认已完成，待企划归档' : '当前负责人意见已保存')
+      this.$nextTick(() => {
+        if (this.currentFlowNode) this.resetFlowForm()
+        else this.flowVisible = false
       })
     },
     openDetail (record) {
@@ -449,6 +517,74 @@ export default {
   padding-bottom: 10px;
   border-bottom: 1px solid #eef3f9;
   margin-bottom: 10px;
+}
+.flow-nodes {
+  margin-top: 12px;
+  border: 1px solid #e8eff7;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.flow-node {
+  padding: 8px 12px;
+  border-bottom: 1px solid #eef3f9;
+  background: #fbfdff;
+}
+.flow-node:last-child {
+  border-bottom: 0;
+}
+.flow-node.active {
+  background: #f0f8ff;
+}
+.flow-node-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.flow-node-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #2c4359;
+}
+.flow-node-meta {
+  font-size: 11.5px;
+  color: #7d90a5;
+  margin-top: 3px;
+}
+.flow-node-comment {
+  font-size: 12px;
+  color: #52667c;
+  margin-top: 4px;
+  line-height: 18px;
+}
+.reply-card {
+  border: 1px solid #e8eff7;
+  border-radius: 3px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: #fcfdff;
+}
+.reply-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.reply-person {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2c4359;
+}
+.reply-line {
+  font-size: 12.5px;
+  color: #3c536a;
+  line-height: 19px;
+}
+.reply-meta {
+  font-size: 12px;
+  color: #6b8096;
+  line-height: 18px;
+  margin-top: 3px;
 }
 .reply-title {
   font-size: 14px;

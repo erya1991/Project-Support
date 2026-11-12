@@ -331,7 +331,7 @@ export default {
         const count = this.$store.db.relations.filter(r => r.batchId === b && r.status === '待审批').length
         approvalItems.push({ title: `帮扶关系联合审批（${count} 条）`, desc: `批次 ${b}`, path: '/relations' })
       })
-      t.suggestions.forEach(s => approvalItems.push({ title: `制度改进建议部门确认 ${s.id}`, desc: s.title, path: '/suggestions' }))
+      t.suggestions.forEach(s => approvalItems.push({ title: `制度改进建议流程待办 ${s.id}`, desc: s.title, path: '/suggestions' }))
       return [
         { key: 'daily', title: '待填日报', color: 'blue', items: dailyItems },
         { key: 'appeal', title: '待推进诉求', color: 'orange', items: appealItems },

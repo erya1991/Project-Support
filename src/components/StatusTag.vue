@@ -15,7 +15,6 @@ const COLOR_MAP = {
   落实中: 'blue',
   销项审批中: 'orange',
   已销项: 'green',
-  待受理: 'orange',
   办理中: 'blue',
   待校核: 'gold',
   已校核: 'green',
@@ -25,18 +24,15 @@ const COLOR_MAP = {
   未冻结: '',
   已冻结: 'red',
   待确认: 'orange',
+  已确认: 'green',
   已回复: 'blue',
   已归档: 'green',
+  已终止: '',
   通过: 'green',
   退回: 'red',
   待处理: '',
   审批中: 'orange',
-  已通过: 'green',
-  有新进展: 'green',
-  无新进展: '',
-  因未到岗未反馈: 'orange',
-  待反馈: 'red',
-  已反馈: 'green'
+  已通过: 'green'
 }
 
 export default {

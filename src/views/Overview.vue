@@ -22,9 +22,13 @@
         <div class="stat-label"><a-icon type="profile" /> 项目诉求总数</div>
         <div class="stat-value">{{ stats.appealTotal }}<small>条</small></div>
       </div>
-      <div class="stat-cell clickable" @click="goAppeals('在办')">
-        <div class="stat-label"><a-icon type="clock-circle" /> 在办诉求</div>
-        <div class="stat-value orange">{{ stats.activeCount }}<small>条</small></div>
+      <div class="stat-cell clickable" @click="goAppeals('办理中')">
+        <div class="stat-label"><a-icon type="clock-circle" /> 办理中诉求</div>
+        <div class="stat-value orange">{{ stats.processingCount }}<small>条</small></div>
+      </div>
+      <div class="stat-cell clickable" @click="goAppeals('销项审批中')">
+        <div class="stat-label"><a-icon type="audit" /> 销项审批中</div>
+        <div class="stat-value orange">{{ stats.closingCount }}<small>条</small></div>
       </div>
       <div class="stat-cell clickable" @click="goAppeals('已销项')">
         <div class="stat-label"><a-icon type="check-circle" /> 已销项</div>
@@ -46,17 +50,13 @@
         <div class="stat-label"><a-icon type="exclamation-circle" /> 日报未填</div>
         <div class="stat-value red">{{ stats.unfilledCount }}<small>份</small></div>
       </div>
-      <div class="stat-cell clickable" @click="$router.push('/daily?tab=monitor')">
-        <div class="stat-label"><a-icon type="message" /> 待反馈诉求</div>
-        <div class="stat-value red">{{ stats.unfedCount }}<small>条</small></div>
+      <div class="stat-cell clickable" @click="$router.push('/daily?tab=all')">
+        <div class="stat-label"><a-icon type="solution" /> 日报待校核</div>
+        <div class="stat-value orange">{{ stats.uncheckedCount }}<small>份</small></div>
       </div>
       <div class="stat-cell">
         <div class="stat-label"><a-icon type="dashboard" /> 到岗率</div>
         <div class="stat-value">{{ stats.attendanceRate }}<small>%</small></div>
-      </div>
-      <div class="stat-cell">
-        <div class="stat-label"><a-icon type="solution" /> 诉求反馈率</div>
-        <div class="stat-value">{{ stats.feedbackRate }}<small>%</small></div>
       </div>
     </div>
 
@@ -300,7 +300,7 @@
             <div class="detail-item"><span class="detail-label">办理状态</span><span class="detail-value"><status-tag :status="ledgerDetail.row.status" /></span></div>
             <div class="detail-item"><span class="detail-label">所属项目</span><span class="detail-value">{{ ledgerDetail.row.projectName }}</span></div>
             <div class="detail-item"><span class="detail-label">主责部门</span><span class="detail-value">{{ ledgerDetail.row.deptName }}</span></div>
-            <div class="detail-item"><span class="detail-label">责任人</span><span class="detail-value">{{ ledgerDetail.row.personName }}</span></div>
+            <div class="detail-item"><span class="detail-label">承办人</span><span class="detail-value">{{ ledgerDetail.row.personName }}</span></div>
             <div class="detail-item"><span class="detail-label">完成时限</span><span class="detail-value">{{ ledgerDetail.row.dueDate }}</span></div>
             <div class="detail-item full"><span class="detail-label">诉求事项</span><span class="detail-value">{{ ledgerDetail.row.title }}</span></div>
             <div class="detail-item full"><span class="detail-label">具体描述</span><span class="detail-value">{{ ledgerDetail.row.desc }}</span></div>
@@ -333,7 +333,7 @@
             <div class="detail-item full"><span class="detail-label">建议事项</span><span class="detail-value">{{ ledgerDetail.row.title }}</span></div>
             <div class="detail-item full"><span class="detail-label">涉及制度/流程</span><span class="detail-value">{{ ledgerDetail.row.flow }}</span></div>
             <div class="detail-item full"><span class="detail-label">问题描述</span><span class="detail-value">{{ ledgerDetail.row.desc }}</span></div>
-            <div class="detail-item full"><span class="detail-label">回复意见</span><span class="detail-value">{{ ledgerDetail.row.reply ? ledgerDetail.row.reply.adopt + '：' + (ledgerDetail.row.reply.plan || ledgerDetail.row.reply.reason) : '待部门确认' }}</span></div>
+            <div class="detail-item full"><span class="detail-label">回复意见</span><span class="detail-value">{{ ledgerDetail.row.replyText || '待部门确认' }}</span></div>
           </div>
         </div>
 
@@ -439,16 +439,16 @@ export default {
         const count = this.$store.db.relations.filter(r => r.batchId === b && r.status === '待审批').length
         list.push({ key: b, title: `帮扶关系联合审批（${count} 条）`, desc: `批次 ${b}`, path: '/relations' })
       })
-      t.suggestions.forEach(s => list.push({ key: s.id, title: `制度改进建议部门确认 ${s.id}`, desc: s.title, path: '/suggestions' }))
+      t.suggestions.forEach(s => list.push({ key: s.id, title: `制度改进建议流程待办 ${s.id}`, desc: s.title, path: '/suggestions' }))
       return list
     },
     ledgerStatusOptions () {
       const map = {
         relations: ['草稿', '待审批', '已生效', '已驳回', '已失效'],
         works: ['待生效', '落实中', '销项审批中', '已销项'],
-        appeals: ['待受理', '办理中', '销项审批中', '已销项'],
+        appeals: ['办理中', '销项审批中', '已销项'],
         reports: ['未填写', '草稿', '已提交'],
-        suggestions: ['待确认', '已回复', '已归档']
+        suggestions: ['待确认', '已回复', '已归档', '已退回']
       }
       return map[this.ledgerTab] || []
     },
@@ -483,7 +483,7 @@ export default {
           { title: '诉求编号', dataIndex: 'id', width: 110 },
           { title: '诉求事项', dataIndex: 'title', width: 260, scopedSlots: { customRender: 'content' } },
           { title: '所属项目', dataIndex: 'projectName', width: 170 },
-          { title: '责任人', dataIndex: 'personName', width: 76 },
+          { title: '承办人', dataIndex: 'personName', width: 76 },
           { title: '完成时限', dataIndex: 'dueDate', width: 106 },
           statusCol
         ]
@@ -542,10 +542,13 @@ export default {
         if (kw) rows = rows.filter(r => `${r.personName}${r.deptName}${r.projectName}`.indexOf(kw) > -1)
         if (st) rows = rows.filter(r => r.status === st)
       } else {
-        rows = this.$store.db.suggestions.map(s => ({
-          ...s,
-          replyText: s.reply ? s.reply.adopt : '待回复'
-        }))
+        rows = this.$store.db.suggestions.map(s => {
+          const replies = (s.confirmers || []).filter(c => c.reply)
+          return {
+            ...s,
+            replyText: replies.length ? (replies.some(c => c.reply.adopt === '改') ? '改' : '不改') : '待回复'
+          }
+        })
         if (kw) rows = rows.filter(r => `${r.title}${r.deptName}${r.proposerName}`.indexOf(kw) > -1)
         if (st) rows = rows.filter(r => r.status === st)
       }
@@ -611,7 +614,7 @@ export default {
         type: this.ledgerTab,
         row: record,
         result: record.result,
-        projectNames: record.executions ? record.executions.filter(e => e.scope === 'project').map(e => e.projectName).join('、') : ''
+        projectNames: (record.projectExecutions || []).map(e => e.projectName).join('、')
       }
       this.detailVisible = true
     },

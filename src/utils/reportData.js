@@ -21,13 +21,17 @@ function deptOrderMap (db) {
 }
 
 export function workResultText (work) {
-  if (!work.executions || !work.executions.length) return '待落实'
-  return work.executions.map(e => {
-    if (e.scope === 'company') return e.content
-    if (!e.content) return `${e.projectName}：待落实`
-    if (e.content.indexOf(`${e.projectName}：`) === 0 || e.content.indexOf(`${e.projectName}:`) === 0) return e.content
-    return `${e.projectName}：${e.content}`
-  }).join('\n')
+  const parts = []
+  if (work.overallContent) parts.push(work.overallContent)
+  ;(work.projectExecutions || []).forEach(e => {
+    if (!e.content) {
+      parts.push(`${e.projectName}：待落实`)
+      return
+    }
+    if (e.content.indexOf(`${e.projectName}：`) === 0 || e.content.indexOf(`${e.projectName}:`) === 0) parts.push(e.content)
+    else parts.push(`${e.projectName}：${e.content}`)
+  })
+  return parts.length ? parts.join('\n') : '待落实'
 }
 
 export function buildWorkList (db) {
@@ -48,7 +52,7 @@ export function buildWorkList (db) {
     problem: w.problem || '',
     suggestion: w.suggestion || '',
     status: w.status,
-    projects: (w.executions || []).filter(e => e.scope === 'project').map(e => e.projectName)
+    projects: (w.projectExecutions || []).map(e => e.projectName)
   }))
 }
 
@@ -80,18 +84,30 @@ export function buildSuggestionList (db) {
   const deptOrder = deptOrderMap(db)
   return db.suggestions.slice()
     .sort((a, b) => deptOrder[a.deptId] - deptOrder[b.deptId] || a.createdAt.localeCompare(b.createdAt))
-    .map(s => ({
-      id: s.id,
-      title: s.title,
-      flow: s.flow,
-      desc: s.desc,
-      proposer: `${s.proposerName}/${s.proposerDeptName}`,
-      deptName: s.deptName,
-      replyText: s.reply ? (s.reply.adopt === '改' ? '改' : `不改。${s.reply.reason}`) : '待部门确认',
-      plan: s.reply ? s.reply.plan : '',
-      deadline: s.reply ? s.reply.deadline : '',
-      status: s.status
-    }))
+    .map(s => {
+      const replies = (s.confirmers || []).filter(c => c.reply)
+      const replyText = replies.length
+        ? replies.map(c => `${c.name}：${c.reply.adopt}${c.reply.adopt === '不改' ? `（${c.reply.reason}）` : ''}`).join('；')
+        : (s.status === '已退回' ? '已退回' : '待部门确认')
+      const plan = replies
+        .filter(c => c.reply.adopt === '改')
+        .map(c => `${c.name}：${c.reply.plan}`)
+        .join('；')
+      const deadlines = [...new Set(replies.filter(c => c.reply.deadline).map(c => c.reply.deadline))].join('；')
+      return {
+        id: s.id,
+        title: s.title,
+        flow: s.flow,
+        desc: s.desc,
+        proposer: `${s.proposerName}/${s.proposerDeptName}`,
+        deptName: s.deptName,
+        replyText,
+        plan,
+        deadline: deadlines,
+        status: s.status,
+        archiveOpinion: s.archiveOpinion || ''
+      }
+    })
 }
 
 function orderReports (db, reports) {

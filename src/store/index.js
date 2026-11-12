@@ -1,6 +1,7 @@
 import Vue from 'vue'
 import { buildSeed, CURRENT_USER_ID, PLANNER, ARCHIVER } from '../data/seed'
 import { nowStr, todayStr, isFrozen, datesBetween, isWeekend, recentReportDays } from '../utils/date'
+import { migrateDb } from './migrate'
 
 const STORAGE_KEY = 'hq_enablement_db_v5'
 const state = Vue.observable({ db: null })
@@ -32,8 +33,8 @@ const store = {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
         const parsed = JSON.parse(raw)
-        if (parsed && parsed.version === 5) {
-          state.db = parsed
+        if (parsed && parsed.people && parsed.works && parsed.dailyReports) {
+          state.db = migrateDb(parsed)
           this.refreshDailyWindow()
           this.persist()
           return
@@ -42,7 +43,7 @@ const store = {
     } catch (e) {
       // 本地数据不可用时重新初始化
     }
-    state.db = buildSeed()
+    state.db = migrateDb(buildSeed())
     this.refreshDailyWindow()
     this.persist()
   },
@@ -57,7 +58,7 @@ const store = {
 
   reset () {
     localStorage.removeItem(STORAGE_KEY)
-    state.db = buildSeed()
+    state.db = migrateDb(buildSeed())
     this.persist()
   },
 
@@ -113,12 +114,6 @@ const store = {
     return this.db.people.filter(p => ids.indexOf(p.id) > -1)
   },
 
-  primaryPersonOfProject (projectId) {
-    const list = this.db.relations.filter(r => r.projectId === projectId && r.status === '已生效')
-    const primary = list.find(r => r.role === '主责') || list[0]
-    return primary ? this.getPerson(primary.personId) : null
-  },
-
   appealsOf (personId, projectId, includeClosed = false) {
     return this.db.appeals.filter(a => {
       if (personId && a.personId !== personId) return false
@@ -126,10 +121,6 @@ const store = {
       if (!includeClosed && a.status === '已销项') return false
       return true
     })
-  },
-
-  feedbackAppeals (personId, projectId) {
-    return this.db.appeals.filter(a => a.personId === personId && a.projectId === projectId && a.status === '办理中')
   },
 
   reportFor (date, personId, projectId) {
@@ -215,9 +206,19 @@ const store = {
     return batches
   },
 
+  projectNeedsSnapshot (projectId) {
+    const project = this.getProject(projectId)
+    const base = project ? project.needs : ''
+    const active = this.db.appeals
+      .filter(a => a.projectId === projectId && a.status !== '已销项')
+      .slice(0, 3)
+    if (!active.length) return base
+    const current = active.map(a => a.title).join('；')
+    return base ? `${base}；当前诉求：${current}` : `当前诉求：${current}`
+  },
+
   createDailyTask (relation, date) {
     if (this.reportFor(date, relation.personId, relation.projectId)) return
-    const project = this.getProject(relation.projectId)
     this.db.dailyReports.push({
       id: `RB${date.replace(/-/g, '')}${relation.personId}${relation.projectId}`,
       date,
@@ -227,18 +228,18 @@ const store = {
       deptName: relation.deptName,
       projectId: relation.projectId,
       projectName: relation.projectName,
-      projectNeeds: project ? project.needs : '',
+      projectNeeds: this.projectNeedsSnapshot(relation.projectId),
       attend: null,
       absentReason: '',
       workContent: '',
       newIssues: '',
+      appealIds: [],
       status: '未填写',
       checkStatus: '待校核',
       frozen: isFrozen(date),
       submitTime: '',
       checkTime: '',
       checker: '',
-      feedbacks: [],
       revisions: []
     })
   },
@@ -352,6 +353,7 @@ const store = {
         leadId: item.leadId,
         leadName: this.getPerson(item.leadId) ? this.getPerson(item.leadId).name : '',
         leadDeptId: deptId,
+        dueDate: item.dueDate || '',
         problem: item.problem || '',
         suggestion: item.suggestion || ''
       }))
@@ -377,6 +379,7 @@ const store = {
         leadId: item.leadId,
         leadName: this.getPerson(item.leadId) ? this.getPerson(item.leadId).name : '',
         leadDeptId: deptId,
+        dueDate: item.dueDate || '',
         problem: item.problem || '',
         suggestion: item.suggestion || ''
       }))
@@ -413,6 +416,7 @@ const store = {
         title: item.title,
         leadId: item.leadId,
         leadName: item.leadName,
+        dueDate: item.dueDate,
         problem: item.problem,
         suggestion: item.suggestion
       }
@@ -424,6 +428,9 @@ const store = {
           ...base,
           status: '待生效',
           createdAt: nowStr(),
+          overallContent: '',
+          overallAttachments: [],
+          projectExecutions: [],
           executions: [],
           closeRequest: null,
           history: [{ time: nowStr(), action: '创建梳理单', operator: PLANNER.name, remark: sheet.remark }]
@@ -478,44 +485,45 @@ const store = {
     if (work.status === '销项审批中' || work.status === '已销项') {
       return { ok: false, message: '当前状态不允许修改执行情况' }
     }
-    const executions = []
-    if (payload.scope === 'company') {
-      executions.push({
-        id: `GZE${work.id.slice(-3)}C${Date.now().toString().slice(-3)}`,
-        scope: 'company',
-        projectId: '',
-        projectName: '',
-        personId: work.leadId,
-        personName: work.leadName,
-        content: payload.companyContent,
-        updatedAt: nowStr(),
-        attachments: payload.attachments || []
-      })
-    } else {
-      payload.projects.forEach((p, index) => {
-        const existing = work.executions.find(e => e.projectId === p.projectId)
-        const person = this.getPerson(p.personId) || this.primaryPersonOfProject(p.projectId)
-        executions.push({
-          id: existing ? existing.id : `GZE${work.id.slice(-3)}${index}${Date.now().toString().slice(-3)}`,
-          scope: 'project',
-          projectId: p.projectId,
-          projectName: this.getProject(p.projectId).name,
-          personId: person ? person.id : '',
-          personName: person ? person.name : '',
-          content: p.content,
-          updatedAt: nowStr(),
-          attachments: p.attachments || []
-        })
-      })
+    if (!payload.overallContent || !payload.overallContent.trim()) {
+      return { ok: false, message: '请填写总体执行情况' }
     }
-    work.executions = executions
+    const projects = payload.projects || []
+    const projectIds = projects.map(p => p.projectId)
+    if (new Set(projectIds).size !== projectIds.length) {
+      return { ok: false, message: '同一项目不能重复添加' }
+    }
+    for (const p of projects) {
+      if (!p.projectId) return { ok: false, message: '请选择关联项目' }
+      if (!p.content || !p.content.trim()) return { ok: false, message: '请填写项目落实情况' }
+      const valid = this.db.relations.find(r => r.status === '已生效' && r.personId === p.personId && r.projectId === p.projectId)
+      if (!valid) return { ok: false, message: '项目跟进人必须与所选项目存在有效帮扶关系' }
+    }
+    const projectExecutions = projects.map((p, index) => {
+      const existing = (work.projectExecutions || []).find(e => e.projectId === p.projectId)
+      const project = this.getProject(p.projectId)
+      const person = this.getPerson(p.personId)
+      return {
+        id: existing ? existing.id : `GPE${work.id.slice(-3)}${index}${Date.now().toString().slice(-3)}`,
+        projectId: p.projectId,
+        projectName: project ? project.name : '',
+        personId: p.personId,
+        personName: person ? person.name : '',
+        content: p.content,
+        attachments: p.attachments || [],
+        updatedAt: nowStr()
+      }
+    })
+    work.overallContent = payload.overallContent
+    work.overallAttachments = payload.overallAttachments || []
+    work.projectExecutions = projectExecutions
     if (work.status === '待生效') work.status = '落实中'
     work.updatedAt = nowStr()
     work.history.push({
       time: nowStr(),
       action: '更新执行情况',
-      operator: payload.scope === 'company' ? work.leadName : '项目跟进人',
-      remark: payload.scope === 'company' ? '填写公司级总体执行情况。' : `按项目分别填报执行情况（${executions.length}个项目）。`
+      operator: work.leadName,
+      remark: `保存总体执行情况及${projectExecutions.length}个项目落实情况。`
     })
     this.persist()
     return { ok: true }
@@ -524,16 +532,15 @@ const store = {
   submitWorkClose (workId, payload) {
     const work = this.workById(workId)
     if (!work) return { ok: false, message: '未找到重点工作' }
-    if (!work.executions.length) return { ok: false, message: '请先填写执行情况' }
+    if (!work.overallContent || !work.overallContent.trim()) {
+      return { ok: false, message: '请先填写总体执行情况' }
+    }
     if (work.closeRequest && work.closeRequest.status === '审批中') {
       return { ok: false, message: '该事项已有进行中的销项申请' }
     }
     const nodes = []
-    const executionIds = payload.executionIds && payload.executionIds.length
-      ? payload.executionIds
-      : work.executions.map(e => e.id)
-    const selectedExecutions = work.executions.filter(e => executionIds.indexOf(e.id) > -1)
-    const projectIds = [...new Set(selectedExecutions.filter(e => e.scope === 'project').map(e => e.projectId))]
+    const projectExecutions = work.projectExecutions || []
+    const projectIds = [...new Set(projectExecutions.map(e => e.projectId))]
     projectIds.forEach(pid => {
       const project = this.getProject(pid)
       nodes.push({ key: `pm_${pid}`, name: `项目经理确认（${project.name}）`, approver: project.manager, result: '待处理', time: '', comment: '' })
@@ -544,7 +551,10 @@ const store = {
       id: nextCode(this.db.works.map(w => ({ id: w.closeRequest ? w.closeRequest.id : '' })).filter(w => w.id), 'GZX2026', 3),
       reason: payload.reason,
       attachments: payload.attachments || [],
-      executionIds,
+      executionIds: projectExecutions.map(e => e.id),
+      overallContent: work.overallContent,
+      overallAttachments: clone(work.overallAttachments || []),
+      projectExecutions: clone(projectExecutions),
       submittedBy: work.leadName,
       submittedAt: nowStr(),
       status: '审批中',
@@ -606,11 +616,11 @@ const store = {
       plan: payload.plan,
       dueDate: payload.dueDate,
       source: payload.source,
-      status: '待受理',
+      status: '办理中',
       createdAt: nowStr(),
-      acceptedAt: '',
-      latestProgress: '诉求已登记，等待主责部门受理。',
-      progress: [{ time: nowStr(), source: '登记', content: '诉求已登记，等待主责部门受理。', operator: this.currentUser.name }],
+      acceptedAt: nowStr(),
+      latestProgress: '诉求已登记并安排承办人办理。',
+      progress: [],
       closeRequest: null,
       attachments: payload.attachments || []
     }
@@ -634,12 +644,6 @@ const store = {
         appeal.personPhone = person.phone
         appeal.deptId = person.deptId
         appeal.deptName = this.getDept(person.deptId).name
-        appeal.progress.push({
-          time: nowStr(),
-          source: '进展',
-          content: `责任人调整为 ${person.name}（${appeal.deptName}），继续跟进办理。`,
-          operator: ARCHIVER.name
-        })
       }
     }
     Object.assign(appeal, {
@@ -653,38 +657,9 @@ const store = {
     })
     if (dueChanged) {
       appeal.latestProgress = `完成时限调整至 ${payload.dueDate}：${payload.extendReason}`
-      appeal.progress.push({
-        time: nowStr(),
-        source: '进展',
-        content: `完成时限调整至 ${payload.dueDate}，延期原因：${payload.extendReason}`,
-        operator: appeal.personName
-      })
     }
     this.persist()
     return { ok: true }
-  },
-
-  acceptAppeal (id) {
-    const appeal = this.db.appeals.find(a => a.id === id)
-    if (!appeal) return
-    appeal.status = '办理中'
-    appeal.acceptedAt = nowStr()
-    appeal.progress.push({
-      time: nowStr(),
-      source: '受理',
-      content: `${appeal.deptName}已受理，转 ${appeal.personName} 跟进办理。`,
-      operator: this.getDept(appeal.deptId).manager
-    })
-    appeal.latestProgress = appeal.progress[appeal.progress.length - 1].content
-    this.persist()
-  },
-
-  addAppealProgress (id, content) {
-    const appeal = this.db.appeals.find(a => a.id === id)
-    if (!appeal) return
-    appeal.progress.push({ time: nowStr(), source: '进展', content, operator: appeal.personName })
-    appeal.latestProgress = content
-    this.persist()
   },
 
   submitAppealClose (id, payload) {
@@ -768,81 +743,44 @@ const store = {
   },
 
   /* ---------------- 日报 ---------------- */
-  ensureReportFeedbacks (report) {
-    if (!report) return
-    if (!report.feedbacks) report.feedbacks = []
-    const appeals = this.feedbackAppeals(report.personId, report.projectId)
-    appeals.forEach(appeal => {
-      const exists = report.feedbacks.find(f => f.appealId === appeal.id)
-      if (!exists) {
-        report.feedbacks.push({
-          appealId: appeal.id,
-          appealTitle: appeal.title,
-          appealStatus: appeal.status,
-          latestProgress: appeal.latestProgress,
-          type: '',
-          content: '',
-          newIssue: '',
-          attachments: []
-        })
-      } else {
-        exists.appealTitle = appeal.title
-        exists.appealStatus = appeal.status
-        exists.latestProgress = appeal.latestProgress
-      }
-    })
-    report.feedbacks = report.feedbacks || []
-    this.persist()
-  },
-
-  saveReport (reportId, payload, mode, options = {}) {    const report = this.db.dailyReports.find(r => r.id === reportId)
+  saveReport (reportId, payload, mode, options = {}) {
+    const report = this.db.dailyReports.find(r => r.id === reportId)
     if (!report) return { ok: false, message: '未找到日报' }
-    if (report.frozen && !options.admin) return { ok: false, message: '该日报已冻结，个人不可修改' }
+    if (!options.admin && isFrozen(report.date)) {
+      return { ok: false, message: '该日报已冻结，个人不可修改' }
+    }
+    report.frozen = isFrozen(report.date)
     const changingChecked = report.checkStatus === '已校核'
+    const activeIds = new Set(this.db.appeals
+      .filter(a => a.personId === report.personId && a.projectId === report.projectId && a.status === '办理中')
+      .map(a => a.id))
+    const existingIds = new Set(report.appealIds || [])
+    const appealIds = [...new Set(payload.appealIds || [])].filter(id => activeIds.has(id) || existingIds.has(id))
     Object.assign(report, {
       attend: payload.attend,
       absentReason: payload.absentReason || '',
       workContent: payload.workContent || '',
       newIssues: payload.newIssues || '',
-      feedbacks: payload.feedbacks || report.feedbacks
+      appealIds
     })
     if (mode === 'submit') {
       report.status = '已提交'
       report.submitTime = nowStr()
+      appealIds.forEach(id => {
+        const appeal = this.db.appeals.find(a => a.id === id)
+        if (appeal) {
+          appeal.latestProgress = report.workContent || report.newIssues || '已关联项目日报。'
+          appeal.latestReportDate = report.date
+          appeal.latestReportId = report.id
+        }
+      })
     } else {
       report.status = '草稿'
     }
     if (changingChecked) report.checkStatus = '需重新校核'
     else if (report.checkStatus !== '需重新校核') report.checkStatus = '待校核'
-    this.syncReportFeedback(report)
     this.persist()
     return { ok: true }
-  },
-
-  syncReportFeedback (report) {
-    // 先移除该日报此前写入的进展，避免重复编辑产生重复记录
-    this.db.appeals.forEach(appeal => {
-      const before = appeal.progress.length
-      appeal.progress = appeal.progress.filter(p => p.reportId !== report.id)
-      if (appeal.progress.length !== before) {
-        appeal.latestProgress = appeal.progress.length ? appeal.progress[appeal.progress.length - 1].content : ''
-      }
-    })
-    if (report.status === '未填写') return
-    report.feedbacks.forEach(fb => {
-      if (fb.type !== '有新进展' || !fb.content) return
-      const appeal = this.db.appeals.find(a => a.id === fb.appealId)
-      if (!appeal) return
-      appeal.progress.push({
-        time: `${report.date} ${nowStr().slice(11)}`,
-        source: '日报',
-        content: fb.content,
-        operator: report.personName,
-        reportId: report.id
-      })
-      appeal.progress.sort((a, b) => a.time.localeCompare(b.time))
-      appeal.latestProgress = appeal.progress[appeal.progress.length - 1].content
-    })
   },
 
   checkReport (reportId, remark) {
@@ -863,17 +801,19 @@ const store = {
       attend: report.attend,
       absentReason: report.absentReason,
       workContent: report.workContent,
-      newIssues: report.newIssues
+      newIssues: report.newIssues,
+      appealIds: (report.appealIds || []).slice()
     }
+    const appealIds = [...new Set(payload.appealIds || report.appealIds || [])]
     Object.assign(report, {
       attend: payload.attend,
       absentReason: payload.absentReason || '',
       workContent: payload.workContent || '',
       newIssues: payload.newIssues || '',
+      appealIds,
       status: '已提交',
       submitTime: report.submitTime || nowStr()
     })
-    if (payload.feedbacks) report.feedbacks = payload.feedbacks
     if (!report.revisions) report.revisions = []
     report.revisions.push({
       time: nowStr(),
@@ -884,11 +824,11 @@ const store = {
         attend: report.attend,
         absentReason: report.absentReason,
         workContent: report.workContent,
-        newIssues: report.newIssues
+        newIssues: report.newIssues,
+        appealIds: (report.appealIds || []).slice()
       }
     })
     report.checkStatus = '需重新校核'
-    this.syncReportFeedback(report)
     this.persist()
     return { ok: true }
   },
@@ -897,6 +837,29 @@ const store = {
   createSuggestion (payload) {
     const proposer = this.currentUser
     const dept = this.getDept(payload.deptId)
+    const confirmers = payload.confirmerIds.map(id => {
+      const p = this.getPerson(id)
+      return { id, name: p.name, title: p.title, status: '待确认', reply: null }
+    })
+    const nodes = confirmers.map(c => ({
+      key: `confirm_${c.id}`,
+      type: 'confirmer',
+      confirmerId: c.id,
+      name: `部门负责人确认（${c.name}）`,
+      approver: c.name,
+      result: '待处理',
+      time: '',
+      comment: ''
+    }))
+    nodes.push({
+      key: 'archive',
+      type: 'archive',
+      name: '企划部归档',
+      approver: ARCHIVER.name,
+      result: '待处理',
+      time: '',
+      comment: ''
+    })
     const suggestion = {
       id: nextCode(this.db.suggestions, 'JY2026', 3),
       title: payload.title,
@@ -909,12 +872,13 @@ const store = {
       deptId: payload.deptId,
       deptName: dept.name,
       confirmerIds: payload.confirmerIds,
-      confirmers: payload.confirmerIds.map(id => {
-        const p = this.getPerson(id)
-        return { id, name: p.name, title: p.title }
-      }),
+      confirmers,
+      nodes,
       reply: null,
       status: '待确认',
+      archiveOpinion: '',
+      archivedAt: '',
+      archivedBy: '',
       createdAt: nowStr(),
       attachments: payload.attachments || []
     }
@@ -923,32 +887,77 @@ const store = {
     return suggestion
   },
 
-  replySuggestion (id, payload) {
+  approveSuggestionNode (id, action, payload = {}) {
     const suggestion = this.db.suggestions.find(s => s.id === id)
-    if (!suggestion) return { ok: false }
-    if (payload.adopt === '不改' && !payload.reason) return { ok: false, message: '回复“不改”需说明理由' }
-    if (payload.adopt === '改' && (!payload.plan || !payload.deadline)) return { ok: false, message: '回复“改”需填写整改计划和完成时限' }
-    suggestion.reply = {
-      adopt: payload.adopt,
+    if (!suggestion) return { ok: false, message: '未找到制度建议' }
+    if (suggestion.status === '已归档') return { ok: false, message: '该建议已归档' }
+    const idx = findFirstPending(suggestion.nodes)
+    if (idx < 0) return { ok: false, message: '没有待处理流程节点' }
+    const node = suggestion.nodes[idx]
+    const comment = payload.comment || ''
+    if (node.type === 'archive') {
+      if (action === 'reject') {
+        node.result = '退回'
+        node.time = nowStr()
+        node.comment = payload.archiveOpinion || comment
+        suggestion.status = '已回复'
+        this.persist()
+        return { ok: true, rejected: true }
+      }
+      if (!payload.archiveOpinion || !payload.archiveOpinion.trim()) {
+        return { ok: false, message: '请填写归档意见' }
+      }
+      node.result = '通过'
+      node.time = nowStr()
+      node.comment = payload.archiveOpinion
+      suggestion.archiveOpinion = payload.archiveOpinion
+      suggestion.archivedAt = nowStr()
+      suggestion.archivedBy = ARCHIVER.name
+      suggestion.status = '已归档'
+      this.persist()
+      return { ok: true, archived: true }
+    }
+
+    const confirmer = suggestion.confirmers.find(c => c.id === node.confirmerId)
+    if (!confirmer) return { ok: false, message: '未找到确认负责人' }
+    if (action === 'reject') {
+      node.result = '退回'
+      node.time = nowStr()
+      node.comment = payload.reason || comment
+      confirmer.status = '已退回'
+      suggestion.status = '已退回'
+      suggestion.nodes.forEach(n => {
+        if (n.result === '待处理') n.result = '已终止'
+      })
+      this.persist()
+      return { ok: true, rejected: true }
+    }
+    const adopt = payload.adopt
+    if (adopt !== '改' && adopt !== '不改') return { ok: false, message: '请选择回复结论' }
+    if (adopt === '不改' && (!payload.reason || !payload.reason.trim())) {
+      return { ok: false, message: '回复“不改”需说明理由' }
+    }
+    if (adopt === '改' && (!payload.plan || !payload.plan.trim() || !payload.deadline)) {
+      return { ok: false, message: '回复“改”需填写整改计划和完成时限' }
+    }
+    confirmer.reply = {
+      adopt,
       reason: payload.reason || '',
       plan: payload.plan || '',
       deadline: payload.deadline || '',
       time: nowStr(),
-      operator: suggestion.confirmers[0].name,
-      comment: payload.comment || ''
+      operator: confirmer.name,
+      comment
     }
-    suggestion.status = '已回复'
+    confirmer.status = '已确认'
+    node.result = '通过'
+    node.time = nowStr()
+    node.comment = adopt === '改' ? confirmer.reply.plan : confirmer.reply.reason
+    if (!suggestion.nodes.some(n => n.type === 'confirmer' && n.result === '待处理')) {
+      suggestion.status = '已回复'
+    }
     this.persist()
     return { ok: true }
-  },
-
-  archiveSuggestion (id) {
-    const suggestion = this.db.suggestions.find(s => s.id === id)
-    if (!suggestion || !suggestion.reply) return
-    suggestion.status = '已归档'
-    suggestion.reply.archivedAt = nowStr()
-    suggestion.reply.archivedBy = ARCHIVER.name
-    this.persist()
   },
 
   /* ---------------- 统计与待办 ---------------- */
@@ -962,10 +971,8 @@ const store = {
     const attendedPeople = new Set(submitted.filter(r => r.attend === true).map(r => r.personId)).size
     const appeals = this.db.appeals
     const closed = appeals.filter(a => a.status === '已销项')
-    const active = appeals.filter(a => a.status !== '已销项')
-    const monitorRows = this.monitorRows(day)
-    const requiredRows = monitorRows.filter(r => r.required)
-    const fed = requiredRows.filter(r => r.feedbackType === '有新进展' || r.feedbackType === '无新进展').length
+    const processing = appeals.filter(a => a.status === '办理中')
+    const closing = appeals.filter(a => a.status === '销项审批中')
     return {
       serviceCount,
       dueCount: dueReports.length,
@@ -976,13 +983,11 @@ const store = {
       attendanceRate: expectedPeople ? Math.round((attendedPeople / expectedPeople) * 1000) / 10 : 0,
       appealTotal: appeals.length,
       closedCount: closed.length,
-      activeCount: active.length,
+      processingCount: processing.length,
+      closingCount: closing.length,
+      activeCount: processing.length + closing.length,
       closeRate: appeals.length ? Math.round((closed.length / appeals.length) * 1000) / 10 : 0,
-      pendingAppeals: appeals.filter(a => a.status === '待受理').length,
-      feedbackTaskCount: requiredRows.length,
-      fedCount: fed,
-      unfedCount: requiredRows.length - fed,
-      feedbackRate: requiredRows.length ? Math.round((fed / requiredRows.length) * 1000) / 10 : 0,
+      uncheckedCount: submitted.filter(r => r.checkStatus !== '已校核').length,
       workTotal: this.db.works.length,
       workClosed: this.db.works.filter(w => w.status === '已销项').length,
       relationCount: rels.length
@@ -997,7 +1002,7 @@ const store = {
     const sheets = this.db.sheets.filter(s => s.status === '审核中')
     const workCloses = this.db.works.filter(w => w.closeRequest && w.closeRequest.status === '审批中')
     const appealCloses = this.db.appeals.filter(a => a.closeRequest && a.closeRequest.status === '审批中')
-    const suggestions = this.db.suggestions.filter(s => s.status === '待确认')
+    const suggestions = this.db.suggestions.filter(s => s.status === '待确认' || s.status === '已回复')
     const approvalCount = relationBatches.length + sheets.length + workCloses.length + appealCloses.length + suggestions.length
     return {
       dailyCount: myReports.length,
@@ -1012,45 +1017,11 @@ const store = {
     }
   },
 
-  monitorRows (date) {
-    const day = date || todayStr()
-    return this.db.appeals.filter(a => a.status !== '已销项').map(appeal => {
-      const report = this.reportFor(day, appeal.personId, appeal.projectId)
-      const fb = report && report.feedbacks.find(f => f.appealId === appeal.id)
-      const required = appeal.status === '办理中'
-      let feedbackStatus = '—'
-      if (required) {
-        if (!report || report.status !== '已提交') feedbackStatus = '待反馈'
-        else if (report.attend === false) feedbackStatus = '因未到岗未反馈'
-        else if (!fb || !fb.type) feedbackStatus = '待反馈'
-        else feedbackStatus = fb.type
-      }
-      let reportStatus = '未填写'
-      if (report) reportStatus = report.status
-      let attendText = '尚未填报'
-      if (report && report.status !== '未填写') attendText = report.attend === true ? '是' : (report.attend === false ? '否' : '尚未填报')
-      const last = appeal.progress[appeal.progress.length - 1]
-      return {
-        appealId: appeal.id,
-        title: appeal.title,
-        projectId: appeal.projectId,
-        projectName: appeal.projectName,
-        personId: appeal.personId,
-        personName: appeal.personName,
-        personPhone: appeal.personPhone,
-        deptName: appeal.deptName,
-        status: appeal.status,
-        reportStatus,
-        reportId: report ? report.id : '',
-        attend: attendText,
-        attendRaw: report ? report.attend : null,
-        absentReason: report ? report.absentReason : '',
-        feedbackStatus,
-        feedbackType: fb ? fb.type : '',
-        lastProgressTime: last ? last.time : '',
-        required
-      }
-    })
+  reportsForAppeal (appealId) {
+    return this.db.dailyReports
+      .filter(r => r.status === '已提交' && (r.appealIds || []).indexOf(appealId) > -1)
+      .slice()
+      .sort((a, b) => b.date.localeCompare(a.date))
   },
 
   weekSummary (start, end) {

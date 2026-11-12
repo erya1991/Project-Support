@@ -107,7 +107,7 @@
           <div class="toolbar">
             <a-button type="primary" @click="exportWorks"><a-icon type="download" /> 导出附件1</a-button>
             <a-button @click="printWorks"><a-icon type="printer" /> 打印 / PDF</a-button>
-            <span class="muted toolbar-tip">可直接在事项列表填写项目级或公司级执行情况，并按单条事项申请销项。</span>
+            <span class="muted toolbar-tip">填写总体执行情况和项目落实情况，并按单条事项申请销项。</span>
           </div>
 
           <a-table
@@ -116,13 +116,13 @@
             :pagination="workPagination"
             row-key="id"
             size="middle"
-            :scroll="{ x: 1245 }"
+            :scroll="{ x: 1355 }"
           >
             <div slot="cellTitle" slot-scope="text" class="work-title-cell" :title="text">{{ text }}</div>
             <div slot="projectCount" slot-scope="text, record" class="project-count-cell">{{ projectCountText(record) }}</div>
             <div slot="progress" slot-scope="text, record" class="progress-cell">
               <div class="progress-scope">{{ scopeText(record) }}</div>
-              <div v-if="record.executions && record.executions.length" class="muted progress-summary">{{ resultSummary(record) }}</div>
+              <div v-if="hasExecution(record)" class="muted progress-summary">{{ resultSummary(record) }}</div>
             </div>
             <div slot="status" slot-scope="text"><status-tag :status="text" /></div>
             <div slot="action" slot-scope="text, record" class="table-actions">
@@ -159,7 +159,7 @@
         <a-row :gutter="16">
           <a-col :span="8">
             <a-form-model-item label="所属体系" required>
-              <a-select v-model="sheetForm.system" placeholder="请选择体系" style="width: 100%" @change="onSystemChange">
+              <a-select v-model="sheetForm.system" placeholder="请选择体系" :disabled="sheetFormMode === 'edit'" style="width: 100%" @change="onSystemChange">
                 <a-select-option v-for="s in systems" :key="s" :value="s">{{ s }}</a-select-option>
               </a-select>
             </a-form-model-item>
@@ -168,14 +168,14 @@
             <a-form-model-item label="归属部门" required>
               <a-select
                 v-model="sheetForm.deptId"
-                placeholder="请选择部门"
-                :disabled="sheetFormMode === 'edit'"
+                :placeholder="sheetForm.system ? '请选择部门' : '请先选择体系'"
+                :disabled="!sheetForm.system || sheetFormMode === 'edit'"
                 show-search
                 option-filter-prop="children"
                 style="width: 100%"
                 @change="onSheetDeptChange"
               >
-                <a-select-option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</a-select-option>
+                <a-select-option v-for="d in availableDepts" :key="d.id" :value="d.id">{{ d.name }}</a-select-option>
               </a-select>
             </a-form-model-item>
           </a-col>
@@ -193,8 +193,8 @@
       </a-form-model>
 
       <div class="items-head">
-        <span class="items-title">重点工作明细 <span class="muted">（{{ sheetForm.items.length }} 条）</span></span>
         <a-button size="small" type="primary" ghost @click="addSheetItem"><a-icon type="plus" /> 新增行</a-button>
+        <span class="items-title">重点工作明细 <span class="muted">（{{ sheetForm.items.length }} 条）</span></span>
       </div>
 
       <a-table
@@ -204,7 +204,7 @@
         size="small"
         bordered
         row-key="_key"
-        :scroll="{ x: 1100 }"
+        :scroll="{ x: 1250 }"
       >
         <div slot="titleCell" slot-scope="text, record">
           <a-textarea v-model="record.title" :rows="2" :max-length="200" placeholder="请输入单条重点工作内容" />
@@ -213,6 +213,9 @@
           <a-select v-model="record.leadId" placeholder="选择牵头人" show-search option-filter-prop="children" style="width: 100%">
             <a-select-option v-for="p in leadOptions" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
           </a-select>
+        </div>
+        <div slot="dueCell" slot-scope="text, record">
+          <a-date-picker v-model="record.dueDate" :allow-clear="false" placeholder="完成时限" style="width: 100%" />
         </div>
         <div slot="resultCell" slot-scope="text, record">
           <span class="muted">待落实</span>
@@ -264,7 +267,7 @@
             :pagination="false"
             size="small"
             row-key="id"
-            :scroll="{ x: 900 }"
+            :scroll="{ x: 1050 }"
           >
             <div slot="statusCol">
               <status-tag :status="sheetCurrent.status === '已生效' ? '落实中' : (sheetCurrent.status === '已退回' ? '已退回' : '待生效')" />
@@ -295,6 +298,7 @@
           <div class="detail-item"><span class="detail-label">所属体系</span><span class="detail-value">{{ workCurrent.system }}</span></div>
           <div class="detail-item"><span class="detail-label">归属部门</span><span class="detail-value">{{ workCurrent.deptName }}</span></div>
           <div class="detail-item"><span class="detail-label">工作牵头人</span><span class="detail-value">{{ workCurrent.leadName }}</span></div>
+          <div class="detail-item"><span class="detail-label">完成时限</span><span class="detail-value">{{ workCurrent.dueDate || '—' }}</span></div>
           <div class="detail-item full"><span class="detail-label">存在问题</span><span class="detail-value">{{ workCurrent.problem || '—' }}</span></div>
           <div class="detail-item full"><span class="detail-label">改进建议</span><span class="detail-value">{{ workCurrent.suggestion || '—' }}</span></div>
         </div>
@@ -306,79 +310,104 @@
           </div>
 
           <template v-if="workDrawerMode === 'exec'">
-            <div class="alert-note" style="margin-bottom:12px;">
-              <a-icon type="info-circle" />
-              选择“项目级”时按项目分别填报执行情况，每个项目一名跟进人；选择“公司级”时不关联项目，填写总体执行情况。
+            <div class="exec-field">
+              <div class="form-label">总体执行情况 <span class="danger-text">*</span></div>
+              <a-textarea
+                v-model="overallContent"
+                :rows="4"
+                :max-length="800"
+                placeholder="填写本项工作的总体推进情况、成果及下一步安排"
+              />
             </div>
-            <a-radio-group v-model="execScope" class="scope-radio" @change="onScopeChange">
-              <a-radio-button value="project">项目级</a-radio-button>
-              <a-radio-button value="company">公司级 / 业务线级</a-radio-button>
-            </a-radio-group>
+            <div class="exec-field">
+              <div class="form-label">总体证明附件</div>
+              <file-uploader v-model="overallAttachments" tip="可上传总体执行情况说明、会议纪要等材料" />
+            </div>
 
-            <template v-if="execScope === 'project'">
-              <div class="exec-field">
-                <div class="form-label">关联项目 <span class="danger-text">*</span></div>
-                <a-select
-                  v-model="selectedProjectIds"
-                  mode="multiple"
-                  placeholder="选择本项目工作的关联项目，可多选"
-                  :max-tag-count="4"
-                  show-search
-                  option-filter-prop="children"
-                  style="width: 100%"
-                  @change="syncProjectRows"
-                >
-                  <a-select-option v-for="p in projectOptions" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
-                </a-select>
-                <div class="form-tip">项目范围取自本部门服务人员、工作牵头人及本人的有效帮扶关系。</div>
+            <div class="project-subtable">
+              <div class="subtable-head">
+                <a-button size="small" type="primary" ghost @click="addProjectRow">
+                  <a-icon type="plus" /> 新增项目
+                </a-button>
+                <span class="muted">项目落实情况（可空，可添加多个项目）</span>
               </div>
-              <div v-if="!execRows.length" class="exec-empty">请选择至少一个关联项目</div>
-              <div v-for="row in execRows" :key="row.projectId" class="exec-project-card">
-                <div class="exec-project-head">
-                  <span class="exec-project-name"><a-icon type="project" /> {{ row.projectName }}</span>
-                  <span class="muted">项目跟进人：{{ row.personName }}</span>
-                  <a class="link-btn" @click="removeProjectRow(row.projectId)">移除</a>
+              <a-table
+                :columns="projectExecColumns"
+                :data-source="projectRows"
+                :pagination="false"
+                size="small"
+                bordered
+                row-key="_key"
+                :scroll="{ x: 960 }"
+              >
+                <div slot="projectCell" slot-scope="text, record, index">
+                  <a-select
+                    :value="record.projectId"
+                    placeholder="选择关联项目"
+                    show-search
+                    option-filter-prop="children"
+                    style="width: 100%"
+                    @change="onProjectRowChange(index, $event)"
+                  >
+                    <a-select-option
+                      v-for="p in projectOptions"
+                      :key="p.id"
+                      :value="p.id"
+                      :disabled="isProjectUsed(p.id, index)"
+                    >{{ p.name }}</a-select-option>
+                  </a-select>
                 </div>
-                <a-textarea
-                  v-model="row.content"
-                  :rows="3"
-                  :max-length="500"
-                  placeholder="填写该项目落实本项工作的具体进展、成果及下一步安排"
-                />
-                <file-uploader v-model="row.attachments" tip="可上传现场照片、会议纪要等佐证材料" />
-              </div>
-            </template>
-
-            <template v-else>
-              <div class="exec-field">
-                <div class="form-label">总体执行情况 <span class="danger-text">*</span></div>
-                <a-textarea
-                  v-model="companyContent"
-                  :rows="4"
-                  :max-length="800"
-                  placeholder="填写公司级/业务线级总体推进情况、成果及下一步安排"
-                />
-              </div>
-              <file-uploader v-model="companyAttachments" tip="可上传相关佐证材料" />
-            </template>
+                <div slot="personCell" slot-scope="text, record">
+                  <span v-if="record.personName">{{ record.personName }}</span>
+                  <span v-else class="danger-text">未匹配</span>
+                </div>
+                <div slot="contentCell" slot-scope="text, record">
+                  <a-textarea v-model="record.content" :rows="2" :max-length="500" placeholder="填写该项目落实情况" />
+                </div>
+                <div slot="fileCell" slot-scope="text, record">
+                  <file-uploader v-model="record.attachments" button-text="上传" />
+                </div>
+                <div slot="deleteCell" slot-scope="text, record, index">
+                  <a class="link-btn danger" @click="removeProjectRow(index)">删除</a>
+                </div>
+              </a-table>
+              <div v-if="!projectRows.length" class="form-tip">未添加项目时，可仅保存总体执行情况。</div>
+            </div>
           </template>
 
           <template v-else>
-            <div v-if="workCurrent.executions.length" class="exec-list">
-              <div v-for="exec in workCurrent.executions" :key="exec.id" class="exec-item">
-                <div class="exec-item-head">
-                  <span class="exec-item-scope">
-                    {{ exec.scope === 'company' ? '公司级 / 业务线级' : exec.projectName }}
-                  </span>
-                  <span class="muted">跟进人：{{ exec.personName }}　更新于 {{ exec.updatedAt }}</span>
-                </div>
-                <div class="exec-item-content">{{ execDisplay(exec) }}</div>
-                <div v-if="exec.attachments && exec.attachments.length" class="exec-files">
-                  <span v-for="(f, i) in exec.attachments" :key="i" class="file-chip"><a-icon type="paper-clip" /> {{ f.name }}</span>
-                </div>
+            <div class="overall-view">
+              <div class="overall-label">总体执行情况</div>
+              <div class="overall-content">{{ workCurrent.overallContent || '尚未填写' }}</div>
+              <div v-if="workCurrent.overallAttachments && workCurrent.overallAttachments.length" class="exec-files">
+                <span v-for="(f, i) in workCurrent.overallAttachments" :key="i" class="file-chip">
+                  <a-icon type="paper-clip" /> {{ f.name }}
+                </span>
               </div>
             </div>
-            <div v-else class="exec-empty">尚未填写执行情况</div>
+
+            <div v-if="workCurrent.projectExecutions && workCurrent.projectExecutions.length" class="project-view">
+              <a-table
+                :columns="projectViewColumns"
+                :data-source="workCurrent.projectExecutions"
+                :pagination="false"
+                size="small"
+                bordered
+                row-key="id"
+                :scroll="{ x: 860 }"
+              >
+                <div slot="viewContent" slot-scope="text, record" class="view-content">
+                  {{ execDisplay(record) }}
+                </div>
+                <div slot="viewFiles" slot-scope="text, record">
+                  <span v-for="(f, i) in record.attachments" :key="i" class="file-chip">
+                    <a-icon type="paper-clip" /> {{ f.name }}
+                  </span>
+                  <span v-if="!record.attachments || !record.attachments.length" class="muted">—</span>
+                </div>
+              </a-table>
+            </div>
+            <div v-else class="exec-empty">未关联项目</div>
           </template>
         </div>
 
@@ -390,16 +419,14 @@
 
           <template v-if="workDrawerMode === 'close' && workCurrent.status === '落实中'">
             <div class="alert-note warn" style="margin-bottom:12px;">
-              <a-icon type="exclamation-circle" /> 请填写办结说明并上传佐证材料。
+              <a-icon type="exclamation-circle" /> 销项将包含本事项总体执行情况及全部项目落实情况，请填写办结说明并上传佐证材料。
             </div>
-            <div class="exec-field">
-              <div class="form-label">关联执行范围 <span class="danger-text">*</span></div>
-              <a-checkbox-group v-model="closeExecutionIds" class="exec-check-group">
-                <a-checkbox v-for="exec in workCurrent.executions" :key="exec.id" :value="exec.id" class="exec-check-item">
-                  <b>{{ exec.scope === 'company' ? '公司级总体执行' : exec.projectName }}</b>
-                  <span class="muted">　{{ execDisplay(exec).slice(0, 50) }}{{ execDisplay(exec).length > 50 ? '…' : '' }}</span>
-                </a-checkbox>
-              </a-checkbox-group>
+            <div class="close-snapshot">
+              <div class="overall-label">总体执行情况</div>
+              <div class="overall-content">{{ workCurrent.overallContent }}</div>
+              <div class="close-projects">
+                项目落实情况：{{ workCurrent.projectExecutions.length ? workCurrent.projectExecutions.map(e => e.projectName).join('、') : '无关联项目' }}
+              </div>
             </div>
             <div class="exec-field">
               <div class="form-label">办结说明 <span class="danger-text">*</span></div>
@@ -415,6 +442,8 @@
             <div class="detail-grid">
               <div class="detail-item"><span class="detail-label">申请编号</span><span class="detail-value">{{ workCurrent.closeRequest.id }}</span></div>
               <div class="detail-item"><span class="detail-label">销项状态</span><span class="detail-value"><status-tag :status="workCurrent.closeRequest.status === '已通过' ? '已销项' : (workCurrent.closeRequest.status === '审批中' ? '销项审批中' : '已退回')" :text="workCurrent.closeRequest.status" /></span></div>
+              <div class="detail-item full"><span class="detail-label">总体执行情况</span><span class="detail-value">{{ workCurrent.closeRequest.overallContent || workCurrent.overallContent }}</span></div>
+              <div class="detail-item full"><span class="detail-label">包含项目</span><span class="detail-value">{{ (workCurrent.closeRequest.projectExecutions || workCurrent.projectExecutions || []).map(e => e.projectName).join('、') || '无关联项目' }}</span></div>
               <div class="detail-item full"><span class="detail-label">办结说明</span><span class="detail-value">{{ workCurrent.closeRequest.reason }}</span></div>
               <div class="detail-item full">
                 <span class="detail-label">佐证附件</span>
@@ -470,19 +499,20 @@
 </template>
 
 <script>
+import moment from 'moment'
 import StatusTag from '../components/StatusTag.vue'
 import ApprovalModal from '../components/ApprovalModal.vue'
 import FileUploader from '../components/FileUploader.vue'
-import { todayStr } from '../utils/date'
+import { todayStr, fmtDate } from '../utils/date'
 import { exportWorksExcel } from '../utils/exportExcel'
 import { printWorksList } from '../utils/printReport'
-import { workResultText } from '../utils/reportData'
 
 function newSheetItem (deptId) {
   return {
     _key: `row_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
     title: '',
     leadId: undefined,
+    dueDate: null,
     problem: '',
     suggestion: '',
     deptId
@@ -518,14 +548,11 @@ export default {
       workDrawerVisible: false,
       workCurrent: null,
       workDrawerMode: 'view',
-      execScope: 'project',
-      selectedProjectIds: [],
-      execRows: [],
-      companyContent: '',
-      companyAttachments: [],
+      overallContent: '',
+      overallAttachments: [],
+      projectRows: [],
       closeReason: '',
       closeAttachments: [],
-      closeExecutionIds: [],
       workApprovalVisible: false,
       workApprovalRecord: null
     }
@@ -533,6 +560,10 @@ export default {
   computed: {
     departments () {
       return this.$store.db.departments
+    },
+    availableDepts () {
+      if (!this.sheetForm.system) return []
+      return this.departments.filter(d => d.system === this.sheetForm.system)
     },
     leadOptions () {
       if (!this.sheetForm.deptId) return []
@@ -585,8 +616,9 @@ export default {
         { title: '部门', dataIndex: 'deptName', width: 150 },
         { title: '重点工作', dataIndex: 'title', width: 240, scopedSlots: { customRender: 'cellTitle' } },
         { title: '牵头人', dataIndex: 'leadName', width: 74 },
-        { title: '关联项目', dataIndex: 'executions', key: 'projectCount', width: 90, align: 'center', scopedSlots: { customRender: 'projectCount' } },
-        { title: '落实进展', dataIndex: 'executions', key: 'progress', width: 170, scopedSlots: { customRender: 'progress' } },
+        { title: '完成时限', dataIndex: 'dueDate', width: 110, align: 'center' },
+        { title: '关联项目', dataIndex: 'projectExecutions', key: 'projectCount', width: 90, align: 'center', scopedSlots: { customRender: 'projectCount' } },
+        { title: '落实进展', dataIndex: 'projectExecutions', key: 'progress', width: 170, scopedSlots: { customRender: 'progress' } },
         { title: '状态', dataIndex: 'status', width: 92, scopedSlots: { customRender: 'status' } },
         { title: '操作', width: 200, scopedSlots: { customRender: 'action' } }
       ]
@@ -594,25 +626,42 @@ export default {
     sheetDetailColumns () {
       return [
         { title: '序号', dataIndex: 'seq', width: 56, align: 'center' },
-        { title: '重点工作', dataIndex: 'title', width: 300 },
+        { title: '重点工作', dataIndex: 'title', width: 280 },
         { title: '工作牵头人', dataIndex: 'leadName', width: 100 },
-        { title: '存在问题', dataIndex: 'problem', width: 220 },
-        { title: '改进建议', dataIndex: 'suggestion', width: 220 },
+        { title: '完成时限', dataIndex: 'dueDate', width: 110 },
+        { title: '存在问题', dataIndex: 'problem', width: 200 },
+        { title: '改进建议', dataIndex: 'suggestion', width: 200 },
         { title: '状态', width: 90, scopedSlots: { customRender: 'statusCol' } }
+      ]
+    },
+    projectExecColumns () {
+      return [
+        { title: '序号', width: 50, align: 'center', customRender: (text, record, index) => index + 1 },
+        { title: '关联项目', width: 210, scopedSlots: { customRender: 'projectCell' } },
+        { title: '项目跟进人', width: 100, align: 'center', scopedSlots: { customRender: 'personCell' } },
+        { title: '落实情况', width: 310, scopedSlots: { customRender: 'contentCell' } },
+        { title: '附件', width: 180, scopedSlots: { customRender: 'fileCell' } },
+        { title: '操作', width: 60, align: 'center', scopedSlots: { customRender: 'deleteCell' } }
+      ]
+    },
+    projectViewColumns () {
+      return [
+        { title: '序号', width: 50, align: 'center', customRender: (text, record, index) => index + 1 },
+        { title: '关联项目', dataIndex: 'projectName', width: 210 },
+        { title: '项目跟进人', dataIndex: 'personName', width: 100, align: 'center' },
+        { title: '落实情况', dataIndex: 'content', width: 330, scopedSlots: { customRender: 'viewContent' } },
+        { title: '附件', width: 170, scopedSlots: { customRender: 'viewFiles' } }
       ]
     },
     projectOptions () {
       const work = this.workCurrent
       if (!work) return []
       const allowed = new Set()
-      const deptStaff = new Set(this.$store.staffOfDept(work.deptId).map(p => p.id))
-      this.$store.db.relations.filter(r => r.status === '已生效').forEach(r => {
-        if (r.personId === work.leadId || deptStaff.has(r.personId) || r.personId === this.$store.currentUser.id) {
-          allowed.add(r.projectId)
-        }
+      const personIds = [work.leadId, this.$store.currentUser.id]
+      this.$store.db.relations.filter(r => r.status === '已生效' && personIds.indexOf(r.personId) > -1).forEach(r => {
+        allowed.add(r.projectId)
       });
-      (work.executions || []).forEach(e => { if (e.projectId) allowed.add(e.projectId) })
-      if (!allowed.size) this.$store.db.projects.forEach(p => allowed.add(p.id))
+      (work.projectExecutions || []).forEach(e => { if (e.projectId) allowed.add(e.projectId) })
       return this.$store.db.projects.filter(p => allowed.has(p.id))
     },
     workDrawerTitle () {
@@ -641,11 +690,12 @@ export default {
     this.systems = this.$store.db.systems
     this.sheetItemColumns = [
       { title: '序号', dataIndex: '_key', width: 52, align: 'center', customRender: (text, record, index) => index + 1 },
-      { title: '重点工作', width: 300, scopedSlots: { customRender: 'titleCell' } },
-      { title: '工作牵头人', width: 130, scopedSlots: { customRender: 'leadCell' } },
-      { title: '项目落实情况', width: 130, scopedSlots: { customRender: 'resultCell' } },
-      { title: '存在问题', width: 200, scopedSlots: { customRender: 'problemCell' } },
-      { title: '改进建议', width: 200, scopedSlots: { customRender: 'suggestionCell' } },
+      { title: '重点工作', width: 280, scopedSlots: { customRender: 'titleCell' } },
+      { title: '工作牵头人', width: 120, scopedSlots: { customRender: 'leadCell' } },
+      { title: '完成时限', width: 150, scopedSlots: { customRender: 'dueCell' } },
+      { title: '项目落实情况', width: 120, scopedSlots: { customRender: 'resultCell' } },
+      { title: '存在问题', width: 180, scopedSlots: { customRender: 'problemCell' } },
+      { title: '改进建议', width: 180, scopedSlots: { customRender: 'suggestionCell' } },
       { title: '操作', width: 88, scopedSlots: { customRender: 'rowAction' } }
     ]
     this.watchQuery()
@@ -668,16 +718,18 @@ export default {
         this.applyWorkFilter()
       }
     },
+    hasExecution (work) {
+      return !!(work.overallContent || (work.projectExecutions && work.projectExecutions.length))
+    },
     resultSummary (work) {
-      if (!work.executions || !work.executions.length) return '待落实'
-      const exec = work.executions[0]
-      return this.execDisplay(exec)
+      if (work.overallContent) return work.overallContent
+      const rows = work.projectExecutions || []
+      return rows.length ? this.execDisplay(rows[0]) : '待落实'
     },
     projectCountText (work) {
-      if (!work.executions || !work.executions.length) return '待落实'
-      const projects = work.executions.filter(e => e.scope === 'project')
-      if (!projects.length) return '公司级'
-      return `${projects.length} 个`
+      const rows = work.projectExecutions || []
+      if (rows.length) return `${rows.length} 个`
+      return work.overallContent ? '公司级' : '待落实'
     },
     execDisplay (exec) {
       if (!exec) return ''
@@ -690,10 +742,9 @@ export default {
       return content
     },
     scopeText (work) {
-      const projects = (work.executions || []).filter(e => e.scope === 'project')
-      if (!work.executions || !work.executions.length) return '待落实'
-      if (!projects.length) return '公司级 / 业务线级 · 不关联项目'
-      return `${projects.length} 个项目：${projects.map(p => p.projectName).join('、')}`
+      const rows = work.projectExecutions || []
+      if (!rows.length) return work.overallContent ? '公司级 / 业务线级 · 不关联项目' : '待落实'
+      return `${rows.length} 个项目：${rows.map(p => p.projectName).join('、')}`
     },
     applySheetFilter () {
       this.appliedSheet = { ...this.sheetFilters }
@@ -712,12 +763,10 @@ export default {
       this.applyWorkFilter()
     },
     onSystemChange () {
-      // 体系与部门联动：选择体系后提示按部门确认归属
-      if (this.sheetForm.deptId) {
-        const dept = this.$store.getDept(this.sheetForm.deptId)
-        if (dept && dept.system !== this.sheetForm.system) {
-          this.sheetForm.deptId = undefined
-        }
+      const valid = this.availableDepts.some(d => d.id === this.sheetForm.deptId)
+      if (!valid) {
+        this.sheetForm.deptId = undefined
+        this.sheetForm.items.forEach(item => { item.leadId = undefined })
       }
     },
     onSheetDeptChange (deptId) {
@@ -730,12 +779,21 @@ export default {
     },
     openSheetCreate () {
       this.sheetFormMode = 'create'
+      let system = this.appliedSheet.system || ''
+      let deptId = this.appliedSheet.deptId || undefined
+      if (deptId) {
+        const dept = this.$store.getDept(deptId)
+        if (dept) {
+          if (!system) system = dept.system
+          if (dept.system !== system) deptId = undefined
+        }
+      }
       this.sheetForm = {
         id: null,
-        deptId: undefined,
-        system: '',
+        deptId,
+        system,
         remark: '',
-        items: [newSheetItem()]
+        items: [newSheetItem(deptId)]
       }
       this.sheetFormVisible = true
     },
@@ -750,6 +808,7 @@ export default {
           _key: `row_${item.id || Date.now()}_${Math.random()}`,
           title: item.title,
           leadId: item.leadId,
+          dueDate: item.dueDate ? moment(item.dueDate) : null,
           problem: item.problem,
           suggestion: item.suggestion,
           deptId: sheet.deptId
@@ -762,9 +821,12 @@ export default {
     },
     copySheetItem (index) {
       const source = this.sheetForm.items[index]
+      let dueDate = null
+      if (source.dueDate) dueDate = typeof source.dueDate.clone === 'function' ? source.dueDate.clone() : moment(source.dueDate)
       this.sheetForm.items.splice(index + 1, 0, {
         ...source,
-        _key: `row_${Date.now()}_${Math.floor(Math.random() * 10000)}`
+        _key: `row_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+        dueDate
       })
     },
     removeSheetItem (index) {
@@ -775,20 +837,27 @@ export default {
       this.sheetForm.items.splice(index, 1)
     },
     saveSheet (submit) {
-      if (!this.sheetForm.deptId) return this.$message.warning('请选择归属部门')
       if (!this.sheetForm.system) return this.$message.warning('请选择所属体系')
+      if (!this.sheetForm.deptId) return this.$message.warning('请选择归属部门')
       if (!this.sheetForm.items.length) return this.$message.warning('请至少添加一条重点工作')
       for (let i = 0; i < this.sheetForm.items.length; i++) {
         const item = this.sheetForm.items[i]
         if (!item.title || !item.title.trim()) return this.$message.warning(`第 ${i + 1} 条重点工作内容不能为空`)
         if (!item.leadId) return this.$message.warning(`第 ${i + 1} 条重点工作请选择工作牵头人`)
+        if (!item.dueDate) return this.$message.warning(`第 ${i + 1} 条重点工作请选择完成时限`)
       }
       const sheet = this.$store.saveSheet({
         id: this.sheetForm.id,
         deptId: this.sheetForm.deptId,
         system: this.sheetForm.system,
         remark: this.sheetForm.remark,
-        items: this.sheetForm.items
+        items: this.sheetForm.items.map(item => ({
+          title: item.title,
+          leadId: item.leadId,
+          dueDate: fmtDate(item.dueDate),
+          problem: item.problem,
+          suggestion: item.suggestion
+        }))
       }, submit)
       this.sheetFormVisible = false
       this.$message.success(submit ? `梳理单 ${sheet.id} 已提交创建审批` : '梳理单草稿已保存')
@@ -850,15 +919,14 @@ export default {
     },
     openClose (work) {
       this.workCurrent = work
-      if (!work.executions || !work.executions.length) {
-        this.$message.warning('请先填写执行情况，再申请销项')
+      if (!work.overallContent || !work.overallContent.trim()) {
+        this.$message.warning('请先填写总体执行情况，再申请销项')
         this.openExec(work)
         return
       }
       this.workDrawerMode = 'close'
       this.closeReason = ''
       this.closeAttachments = []
-      this.closeExecutionIds = work.executions.map(e => e.id)
       this.workDrawerVisible = true
     },
     openCloseApproval (work) {
@@ -871,12 +939,25 @@ export default {
       this.workCurrent = null
       this.workDrawerMode = 'view'
     },
+    followerForProject (projectId) {
+      const work = this.workCurrent
+      if (!work) return null
+      const ids = [work.leadId, this.$store.currentUser.id]
+      for (const id of ids) {
+        const rel = this.$store.db.relations.find(r => r.status === '已生效' && r.personId === id && r.projectId === projectId)
+        if (rel) return this.$store.getPerson(id)
+      }
+      const existing = (work.projectExecutions || []).find(e => {
+        if (e.projectId !== projectId || !e.personId) return false
+        return this.$store.db.relations.some(r => r.status === '已生效' && r.personId === e.personId && r.projectId === projectId)
+      })
+      return existing ? this.$store.getPerson(existing.personId) : null
+    },
     initExecForm (work) {
-      const projectExecs = (work.executions || []).filter(e => e.scope === 'project')
-      const companyExec = (work.executions || []).find(e => e.scope === 'company')
-      this.execScope = projectExecs.length || !companyExec ? 'project' : 'company'
-      this.selectedProjectIds = projectExecs.map(e => e.projectId)
-      this.execRows = projectExecs.map(e => ({
+      this.overallContent = work.overallContent || ''
+      this.overallAttachments = (work.overallAttachments || []).slice()
+      this.projectRows = (work.projectExecutions || []).map(e => ({
+        _key: e.id || `prow_${e.projectId}_${Math.random()}`,
         projectId: e.projectId,
         projectName: e.projectName,
         personId: e.personId,
@@ -884,65 +965,55 @@ export default {
         content: this.execDisplay(e),
         attachments: (e.attachments || []).slice()
       }))
-      this.companyContent = companyExec ? companyExec.content : ''
-      this.companyAttachments = companyExec ? (companyExec.attachments || []).slice() : []
     },
-    onScopeChange () {
-      if (this.execScope === 'project' && !this.selectedProjectIds.length) {
-        this.selectedProjectIds = []
-        this.execRows = []
-      }
-    },
-    syncProjectRows (ids) {
-      const existing = {}
-      this.execRows.forEach(row => { existing[row.projectId] = row })
-      this.execRows = ids.map(id => {
-        if (existing[id]) return existing[id]
-        const project = this.$store.getProject(id)
-        const person = this.$store.primaryPersonOfProject(id) || this.$store.getPerson(this.workCurrent.leadId)
-        return {
-          projectId: id,
-          projectName: project.name,
-          personId: person ? person.id : '',
-          personName: person ? person.name : '',
-          content: '',
-          attachments: []
-        }
+    addProjectRow () {
+      this.projectRows.push({
+        _key: `prow_${Date.now()}_${Math.random()}`,
+        projectId: undefined,
+        projectName: '',
+        personId: '',
+        personName: '',
+        content: '',
+        attachments: []
       })
     },
-    removeProjectRow (projectId) {
-      this.selectedProjectIds = this.selectedProjectIds.filter(id => id !== projectId)
-      this.execRows = this.execRows.filter(row => row.projectId !== projectId)
+    removeProjectRow (index) {
+      this.projectRows.splice(index, 1)
+    },
+    isProjectUsed (projectId, index) {
+      return this.projectRows.some((row, i) => i !== index && row.projectId === projectId)
+    },
+    onProjectRowChange (index, projectId) {
+      const row = this.projectRows[index]
+      const project = this.$store.getProject(projectId)
+      const person = this.followerForProject(projectId)
+      row.projectId = projectId
+      row.projectName = project ? project.name : ''
+      row.personId = person ? person.id : ''
+      row.personName = person ? person.name : ''
+      if (!person) this.$message.warning('该项目与工作牵头人、填写人均无有效帮扶关系，请先配置关系')
     },
     saveExec () {
       const work = this.workCurrent
       if (!work) return
-      if (this.execScope === 'company') {
-        if (!this.companyContent.trim()) return this.$message.warning('请填写公司级总体执行情况')
-        const res = this.$store.saveWorkExecutions(work.id, {
-          scope: 'company',
-          companyContent: this.companyContent,
-          attachments: this.companyAttachments
-        })
-        if (!res.ok) return this.$message.error(res.message)
-      } else {
-        if (!this.selectedProjectIds.length) return this.$message.warning('请选择关联项目')
-        for (let i = 0; i < this.execRows.length; i++) {
-          if (!this.execRows[i].content || !this.execRows[i].content.trim()) {
-            return this.$message.warning(`请填写“${this.execRows[i].projectName}”项目的执行情况`)
-          }
-        }
-        const res = this.$store.saveWorkExecutions(work.id, {
-          scope: 'project',
-          projects: this.execRows.map(row => ({
-            projectId: row.projectId,
-            personId: row.personId,
-            content: row.content,
-            attachments: row.attachments
-          }))
-        })
-        if (!res.ok) return this.$message.error(res.message)
+      if (!this.overallContent.trim()) return this.$message.warning('请填写总体执行情况')
+      const rows = this.projectRows.filter(row => row.projectId || row.content || (row.attachments && row.attachments.length))
+      for (let i = 0; i < rows.length; i++) {
+        if (!rows[i].projectId) return this.$message.warning(`第 ${i + 1} 行请选择关联项目`)
+        if (!rows[i].personId) return this.$message.warning(`第 ${i + 1} 行项目跟进人未匹配到有效帮扶关系`)
+        if (!rows[i].content.trim()) return this.$message.warning(`第 ${i + 1} 行请填写落实情况`)
       }
+      const res = this.$store.saveWorkExecutions(work.id, {
+        overallContent: this.overallContent,
+        overallAttachments: this.overallAttachments,
+        projects: rows.map(row => ({
+          projectId: row.projectId,
+          personId: row.personId,
+          content: row.content,
+          attachments: row.attachments
+        }))
+      })
+      if (!res.ok) return this.$message.error(res.message)
       this.$message.success('执行情况已保存')
       this.workDrawerMode = 'view'
     },
@@ -951,22 +1022,19 @@ export default {
       this.initExecForm(this.workCurrent)
     },
     startCloseFromView () {
-      if (!this.workCurrent.executions.length) {
-        return this.$message.warning('请先填写执行情况，再申请销项')
+      if (!this.workCurrent.overallContent || !this.workCurrent.overallContent.trim()) {
+        return this.$message.warning('请先填写总体执行情况，再申请销项')
       }
       this.workDrawerMode = 'close'
       this.closeReason = ''
       this.closeAttachments = []
-      this.closeExecutionIds = this.workCurrent.executions.map(e => e.id)
     },
     submitClose () {
-      if (!this.closeExecutionIds.length) return this.$message.warning('请选择本次销项覆盖的执行范围')
       if (!this.closeReason.trim()) return this.$message.warning('请填写办结说明')
       if (!this.closeAttachments.length) return this.$message.warning('请上传销项佐证附件')
       const res = this.$store.submitWorkClose(this.workCurrent.id, {
         reason: this.closeReason,
-        attachments: this.closeAttachments,
-        executionIds: this.closeExecutionIds
+        attachments: this.closeAttachments
       })
       if (!res.ok) return this.$message.error(res.message)
       this.$message.success('销项申请已提交')
@@ -1013,6 +1081,51 @@ export default {
   color: #3c5a78;
   white-space: nowrap;
 }
+.project-subtable {
+  margin-top: 14px;
+}
+.subtable-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.overall-view {
+  background: #f8fbff;
+  border: 1px solid #e8f1fa;
+  border-radius: 3px;
+  padding: 10px 12px;
+}
+.overall-label {
+  font-size: 12px;
+  color: #7d90a5;
+  margin-bottom: 4px;
+}
+.overall-content {
+  font-size: 12.5px;
+  line-height: 20px;
+  color: #2f4358;
+  white-space: pre-wrap;
+}
+.project-view {
+  margin-top: 12px;
+}
+.view-content {
+  white-space: pre-wrap;
+  line-height: 18px;
+}
+.close-snapshot {
+  background: #fbfdff;
+  border: 1px solid #e8f1fa;
+  border-radius: 3px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.close-projects {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #5b7189;
+}
 .progress-scope {
   font-size: 12px;
   color: #3c5a78;
@@ -1043,7 +1156,8 @@ export default {
 .items-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 10px;
   margin: 4px 0 8px;
 }
 .items-title {
@@ -1074,9 +1188,6 @@ export default {
   color: #22384e;
   line-height: 22px;
 }
-.scope-radio {
-  margin-bottom: 14px;
-}
 .exec-field {
   margin-bottom: 14px;
 }
@@ -1094,101 +1205,10 @@ export default {
   border-radius: 3px;
   text-align: center;
 }
-.exec-project-card {
-  border: 1px solid #e4eef8;
-  border-radius: 3px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
-  background: #fbfdff;
-}
-.exec-project-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 7px;
-  font-size: 12px;
-}
-.exec-project-name {
-  font-weight: 600;
-  color: #2c4359;
-}
-.exec-project-head .link-btn {
-  margin-left: auto;
-}
-.exec-list {
-  border: 1px solid #e8eff7;
-  border-radius: 3px;
-}
-.exec-item {
-  padding: 10px 12px;
-  border-bottom: 1px solid #f0f4f9;
-}
-.exec-item:last-child {
-  border-bottom: 0;
-}
-.exec-item-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-  margin-bottom: 4px;
-}
-.exec-item-scope {
-  font-weight: 600;
-  color: #2c4359;
-}
-.exec-item-content {
-  font-size: 12.5px;
-  color: #465a70;
-  line-height: 19px;
-  white-space: pre-wrap;
-}
 .exec-files {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 6px;
-}
-.exec-check-group {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-.exec-check-item {
-  display: flex;
-  align-items: flex-start;
-  font-size: 12px;
-  line-height: 18px;
-  white-space: normal;
-}
-.exec-check-item .muted {
-  font-size: 11.5px;
-}
-.drawer-actions {
-  position: sticky;
-  bottom: -16px;
-  margin: 18px -18px -16px;
-  padding: 10px 18px;
-  background: #fff;
-  border-top: 1px solid #eef2f7;
-  text-align: right;
-}
-.drawer-actions .ant-btn {
-  margin-left: 8px;
-}
-.history-title {
-  font-size: 13px;
-  color: #2f4358;
-  font-weight: 600;
-}
-.history-time {
-  font-size: 11.5px;
-  color: #9aabbf;
-  margin: 2px 0;
-}
-.history-remark {
-  font-size: 12px;
-  color: #5b7189;
-  line-height: 18px;
 }
 </style>

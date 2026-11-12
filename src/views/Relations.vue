@@ -57,13 +57,7 @@
 
     <div class="toolbar">
       <a-button type="primary" @click="openCreate"><a-icon type="plus" /> 新增帮扶关系</a-button>
-      <a-button :disabled="!selectedRowKeys.length" @click="batchSubmit">
-        <a-icon type="audit" /> 批量提交审批
-      </a-button>
-      <a v-if="selectedRowKeys.length" class="link-btn clear-selection" @click="selectedRowKeys = []">
-        已选择 {{ selectedRowKeys.length }} 项，清空
-      </a>
-      <span class="toolbar-tip">支持一次选择多名总部人员和多个项目，保存后按“人员×项目”生成关系。</span>
+      <span class="toolbar-tip">每次配置一人一项目；同一人员多个项目、同一项目多名人员可多次新增。</span>
     </div>
 
     <a-table
@@ -72,7 +66,7 @@
       :pagination="pagination"
       row-key="id"
       size="middle"
-      :row-selection="rowSelection"
+      :scroll="{ x: 1540 }"
     >
       <div slot="period" slot-scope="text, record" class="period-cell">
         <div>{{ record.startDate }}</div>
@@ -109,7 +103,7 @@
       <div class="alert-note" style="margin-bottom:14px;">
         <a-icon type="info-circle" />
         {{ formMode === 'create'
-          ? '选择多名人员与多个项目后，系统按“人员×项目”生成独立帮扶关系。'
+          ? '每次配置一人一项目，保存后生成一条帮扶关系；可通过多次新增维护整体多对多关系。'
           : '人员与项目如需变更，请将原关系失效后重新配置。' }}
       </div>
       <a-form-model :label-col="{ span: 7 }" :wrapper-col="{ span: 17 }" class="relation-form">
@@ -117,47 +111,70 @@
           <a-col :span="12">
             <a-form-model-item label="总部服务人员" required>
               <a-select
-                v-model="form.personIds"
-                mode="multiple"
+                v-model="form.personId"
                 :disabled="formMode === 'edit'"
-                placeholder="请选择总部服务人员，可多选"
-                :max-tag-count="3"
+                placeholder="请选择一名总部服务人员"
                 option-filter-prop="children"
                 show-search
                 style="width: 100%"
+                @change="onPersonChange"
               >
                 <a-select-option v-for="p in people" :key="p.id" :value="p.id">
-                  {{ p.name }}（{{ deptName(p.deptId) }}）
+                  {{ p.name }}（{{ p.employeeNo }}）
                 </a-select-option>
               </a-select>
             </a-form-model-item>
           </a-col>
           <a-col :span="12">
-            <a-form-model-item label="服务项目" required>
+            <a-form-model-item label="帮扶项目" required>
               <a-select
-                v-model="form.projectIds"
-                mode="multiple"
+                v-model="form.projectId"
                 :disabled="formMode === 'edit'"
-                placeholder="请选择服务项目，可多选"
-                :max-tag-count="2"
+                placeholder="请选择一个帮扶项目"
                 option-filter-prop="children"
                 show-search
                 style="width: 100%"
+                @change="onProjectChange"
               >
                 <a-select-option v-for="p in projects" :key="p.id" :value="p.id">
-                  {{ p.name }}（项目经理：{{ p.manager }}）
+                  {{ p.name }}（{{ p.company }}）
                 </a-select-option>
               </a-select>
+            </a-form-model-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-model-item label="工号">
+              <div class="readonly-box">{{ formPerson ? formPerson.employeeNo : '随人员带出' }}</div>
+            </a-form-model-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-model-item label="职务">
+              <div class="readonly-box">{{ formPerson ? formPerson.title : '随人员带出' }}</div>
             </a-form-model-item>
           </a-col>
           <a-col :span="12">
             <a-form-model-item label="所属部门">
-              <div class="readonly-box">{{ formDeptText }}</div>
+              <div class="readonly-box">{{ formPerson ? deptName(formPerson.deptId) : '随人员带出' }}</div>
+            </a-form-model-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-model-item label="联系方式">
+              <div class="readonly-box">{{ formPerson ? formPerson.phone : '随人员带出' }}</div>
+            </a-form-model-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-model-item label="所属单位">
+              <div class="readonly-box">{{ formProject ? formProject.company : '随项目带出' }}</div>
             </a-form-model-item>
           </a-col>
           <a-col :span="12">
             <a-form-model-item label="项目经理">
-              <div class="readonly-box">{{ formManagerText }}</div>
+              <div class="readonly-box">{{ formProject ? formProject.manager : '随项目带出' }}</div>
+            </a-form-model-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-model-item label="项目经理联系方式">
+              <div class="readonly-box">{{ formProject ? formProject.managerPhone : '随项目带出' }}</div>
             </a-form-model-item>
           </a-col>
           <a-col :span="12">
@@ -199,22 +216,6 @@
           </a-col>
         </a-row>
       </a-form-model>
-
-      <div v-if="formMode === 'create'" class="preview-block">
-        <div class="preview-title">
-          将生成 <b>{{ formCombos.length }}</b> 条帮扶关系
-          <span v-if="duplicateWarnings.length" class="danger-text">（{{ duplicateWarnings.length }} 条与现有关系重叠，将自动跳过）</span>
-        </div>
-        <div class="preview-list">
-          <div v-for="(combo, index) in formCombos.slice(0, 8)" :key="index" class="preview-item">
-            <a-icon type="user" /> {{ combo.personName }}
-            <a-icon type="arrow-right" class="preview-arrow" />
-            <a-icon type="project" /> {{ combo.projectName }}
-          </div>
-          <span v-if="formCombos.length > 8" class="muted">等 {{ formCombos.length }} 条</span>
-          <span v-if="!formCombos.length" class="muted">请选择人员和项目</span>
-        </div>
-      </div>
 
       <template slot="footer">
         <a-button @click="formVisible = false">关闭</a-button>
@@ -342,7 +343,6 @@ export default {
   data () {
     return {
       expanded: false,
-      selectedRowKeys: [],
       filters: { personId: undefined, projectId: undefined, deptId: undefined, status: undefined, role: undefined, dateRange: null },
       applied: { personId: undefined, projectId: undefined, deptId: undefined, status: undefined, role: undefined, dateRange: null },
       pagination: {
@@ -355,7 +355,7 @@ export default {
       formMode: 'create',
       editingId: null,
       saving: false,
-      form: { personIds: [], projectIds: [], role: '主责', plannerId: 'P17', startDate: null, endDate: null, remark: '' },
+      form: { personId: undefined, projectId: undefined, role: '主责', plannerId: 'P17', startDate: null, endDate: null, remark: '' },
       adjustVisible: false,
       adjustForm: { id: '', personName: '', projectName: '', role: '主责', startDate: null, endDate: null, remark: '' },
       invalidateVisible: false,
@@ -384,16 +384,11 @@ export default {
     statusOptions () {
       return ['草稿', '待审批', '已生效', '已驳回', '已失效']
     },
-    rowSelection () {
-      return {
-        selectedRowKeys: this.selectedRowKeys,
-        onChange: keys => { this.selectedRowKeys = keys },
-        getCheckboxProps: record => ({
-          props: {
-            disabled: record.status !== '草稿' && record.status !== '已驳回'
-          }
-        })
-      }
+    formPerson () {
+      return this.form.personId ? this.$store.getPerson(this.form.personId) : null
+    },
+    formProject () {
+      return this.form.projectId ? this.$store.getProject(this.form.projectId) : null
     },
     filteredRelations () {
       const f = this.applied
@@ -415,59 +410,20 @@ export default {
     columns () {
       return [
         { title: '序号', width: 54, align: 'center', customRender: (text, record, index) => index + 1 },
-        { title: '关系编号', dataIndex: 'id', width: 120 },
-        { title: '总部服务人员', dataIndex: 'personName', width: 96 },
-        { title: '所属部门', dataIndex: 'deptName', width: 165 },
-        { title: '服务项目', dataIndex: 'projectName', width: 195 },
-        { title: '项目经理', dataIndex: 'projectManager', width: 80 },
+        { title: '关系编号', dataIndex: 'id', width: 112 },
+        { title: '总部服务人员', dataIndex: 'personName', width: 92 },
+        { title: '工号', dataIndex: 'personId', key: 'employeeNo', width: 86, customRender: id => this.personEmployeeNo(id) },
+        { title: '所属部门', dataIndex: 'deptName', width: 150 },
+        { title: '帮扶项目', dataIndex: 'projectName', width: 175 },
+        { title: '所属单位', dataIndex: 'projectId', key: 'company', width: 110, customRender: id => this.projectCompany(id) },
+        { title: '项目经理', dataIndex: 'projectManager', width: 82 },
+        { title: '项目经理联系方式', dataIndex: 'projectId', key: 'managerPhone', width: 128, customRender: id => this.projectManagerPhone(id) },
         { title: '帮扶角色', dataIndex: 'role', width: 70, align: 'center' },
-        { title: '有效期', dataIndex: 'startDate', width: 140, scopedSlots: { customRender: 'period' } },
-        { title: '企划经办人', dataIndex: 'plannerName', width: 88 },
-        { title: '关系状态', dataIndex: 'status', width: 88, scopedSlots: { customRender: 'status' } },
-        { title: '操作', width: 125, scopedSlots: { customRender: 'action' } }
+        { title: '有效期', dataIndex: 'startDate', width: 132, scopedSlots: { customRender: 'period' } },
+        { title: '企划经办人', dataIndex: 'plannerName', width: 84 },
+        { title: '关系状态', dataIndex: 'status', width: 86, scopedSlots: { customRender: 'status' } },
+        { title: '操作', width: 120, scopedSlots: { customRender: 'action' } }
       ]
-    },
-    formCombos () {
-      const list = []
-      this.form.personIds.forEach(pid => {
-        const person = this.$store.getPerson(pid)
-        this.form.projectIds.forEach(jid => {
-          const project = this.$store.getProject(jid)
-          if (person && project) list.push({ personName: person.name, projectName: project.name })
-        })
-      })
-      return list
-    },
-    duplicateWarnings () {
-      const list = []
-      this.form.personIds.forEach(pid => {
-        this.form.projectIds.forEach(jid => {
-          const start = fmtDate(this.form.startDate) || '0000-00-00'
-          const end = fmtDate(this.form.endDate) || '9999-12-31'
-          const dup = this.$store.db.relations.find(r => {
-            if (r.personId !== pid || r.projectId !== jid) return false
-            if (r.status === '已失效' || r.status === '已驳回') return false
-            const relEnd = r.endDate || '9999-12-31'
-            return start <= relEnd && end >= r.startDate
-          })
-          if (dup) list.push(dup.id)
-        })
-      })
-      return list
-    },
-    formDeptText () {
-      const names = [...new Set(this.form.personIds.map(pid => {
-        const p = this.$store.getPerson(pid)
-        return p ? this.deptName(p.deptId) : ''
-      }).filter(Boolean))]
-      return names.length ? names.join('、') : '随人员选择自动带出'
-    },
-    formManagerText () {
-      const names = [...new Set(this.form.projectIds.map(jid => {
-        const p = this.$store.getProject(jid)
-        return p ? p.manager : ''
-      }).filter(Boolean))]
-      return names.length ? names.join('、') : '随项目选择自动带出'
     },
     approvalNodes () {
       return this.approvalRecord ? this.approvalRecord.approvals : []
@@ -493,8 +449,21 @@ export default {
       const dept = this.$store.getDept(id)
       return dept ? dept.name : ''
     },
+    personEmployeeNo (id) {
+      const person = this.$store.getPerson(id)
+      return person ? person.employeeNo || '—' : '—'
+    },
+    projectCompany (id) {
+      const project = this.$store.getProject(id)
+      return project ? project.company || '—' : '—'
+    },
+    projectManagerPhone (id) {
+      const project = this.$store.getProject(id)
+      return project ? project.managerPhone || '—' : '—'
+    },
+    onPersonChange () {},
+    onProjectChange () {},
     query () {
-      this.selectedRowKeys = []
       this.applied = {
         personId: this.filters.personId,
         projectId: this.filters.projectId,
@@ -513,8 +482,8 @@ export default {
       this.formMode = 'create'
       this.editingId = null
       this.form = {
-        personIds: [],
-        projectIds: [],
+        personId: undefined,
+        projectId: undefined,
         role: '主责',
         plannerId: 'P17',
         startDate: moment(),
@@ -527,8 +496,8 @@ export default {
       this.formMode = 'edit'
       this.editingId = record.id
       this.form = {
-        personIds: [record.personId],
-        projectIds: [record.projectId],
+        personId: record.personId,
+        projectId: record.projectId,
         role: record.role,
         plannerId: record.plannerId,
         startDate: record.startDate ? moment(record.startDate) : null,
@@ -538,8 +507,8 @@ export default {
       this.formVisible = true
     },
     saveForm (submit) {
-      if (!this.form.personIds.length) return this.$message.warning('请选择总部服务人员')
-      if (!this.form.projectIds.length) return this.$message.warning('请选择服务项目')
+      if (!this.form.personId) return this.$message.warning('请选择总部服务人员')
+      if (!this.form.projectId) return this.$message.warning('请选择帮扶项目')
       if (!this.form.startDate) return this.$message.warning('请选择生效日期')
       if (this.form.endDate && fmtDate(this.form.endDate) < fmtDate(this.form.startDate)) {
         return this.$message.warning('失效日期不得早于生效日期')
@@ -558,8 +527,8 @@ export default {
           this.$message.success(submit ? '已提交联合审批' : '配置草稿已保存')
         } else {
           const res = this.$store.createRelations({
-            personIds: this.form.personIds,
-            projectIds: this.form.projectIds,
+            personIds: [this.form.personId],
+            projectIds: [this.form.projectId],
             role: this.form.role,
             startDate: fmtDate(this.form.startDate),
             endDate: fmtDate(this.form.endDate),
@@ -575,7 +544,7 @@ export default {
             return
           }
           if (submit) this.$store.submitRelations(res.created.map(r => r.id))
-          this.$message.success(`已生成 ${res.created.length} 条帮扶关系${submit ? '并提交联合审批' : '草稿'}`)
+          this.$message.success('帮扶关系草稿已保存')
         }
         this.formVisible = false
         this.query()
@@ -595,25 +564,6 @@ export default {
           this.query()
         }
       })
-    },
-    batchSubmit () {
-      if (!this.selectedRowKeys.length) return
-      const selected = this.dbRelations().filter(r => this.selectedRowKeys.indexOf(r.id) > -1)
-      const batches = [...new Set(selected.map(r => r.batchId))]
-      this.$confirm({
-        title: '批量提交联合审批',
-        content: `已选择 ${selected.length} 条关系，涉及 ${batches.length} 个配置批次。提交时将按批次整体提交工程管理部、企划部联合审批，确认提交？`,
-        okText: '提交',
-        cancelText: '取消',
-        onOk: () => {
-          this.$store.submitRelations(this.selectedRowKeys)
-          this.$message.success('已提交联合审批')
-          this.query()
-        }
-      })
-    },
-    dbRelations () {
-      return this.$store.db.relations
     },
     openApproval (record) {
       this.approvalRecord = record
@@ -697,9 +647,6 @@ export default {
   margin-left: 4px;
   color: #8a9cb0;
 }
-.clear-selection {
-  font-size: 12px;
-}
 .period-cell {
   line-height: 18px;
   font-size: 12px;
@@ -716,40 +663,6 @@ export default {
 }
 .relation-form .ant-form-item {
   margin-bottom: 14px;
-}
-.preview-block {
-  background: #f8fbff;
-  border: 1px dashed #cfe4f8;
-  border-radius: 3px;
-  padding: 10px 12px;
-}
-.preview-title {
-  font-size: 12.5px;
-  color: #42688c;
-  margin-bottom: 7px;
-}
-.preview-title b {
-  color: #1890ff;
-  font-size: 15px;
-  margin: 0 2px;
-}
-.preview-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  font-size: 12px;
-  color: #4a5f75;
-}
-.preview-item {
-  background: #fff;
-  border: 1px solid #e3edf8;
-  border-radius: 2px;
-  padding: 3px 8px;
-}
-.preview-arrow {
-  color: #a9bfd5;
-  margin: 0 4px;
-  font-size: 10px;
 }
 .invalidate-body {
   font-size: 13px;
