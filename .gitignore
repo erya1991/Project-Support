@@ -1,0 +1,10 @@
+node_modules/
+.npm-cache/
+.tmp/
+dist/
+.DS_Store
+*.local
+.vite/
+
+# 任务包内含原始需求文档、附件和参考截图，仅保留在本地，不随前端工程提交
+deepseek-harness-task/
