@@ -1,7 +1,7 @@
 import moment from 'moment'
 import { isFrozen } from '../utils/date'
 
-export const SCHEMA_VERSION = 7
+export const SCHEMA_VERSION = 8
 
 const REGION_COMPANIES = [
   [/上海|江苏|浙江|安徽/, '华东分公司'],
@@ -58,7 +58,13 @@ function normalizeWork (work) {
   work.projectExecutions.forEach(e => {
     delete e.personId
     delete e.personName
+    if (e.inScope === undefined) e.inScope = true
+    if (e.needsConfirm === undefined) e.needsConfirm = false
+    if (e.removedReason === undefined) e.removedReason = ''
+    if (e.removedAt === undefined) e.removedAt = ''
   })
+  if (work.lastScopeSyncDate === undefined) work.lastScopeSyncDate = ''
+  if (work.lastSyncedLeadId === undefined) work.lastSyncedLeadId = ''
   if (work.closeRequest) {
     if (!work.closeRequest.overallContent) work.closeRequest.overallContent = work.overallContent
     if (!Array.isArray(work.closeRequest.projectExecutions)) {
@@ -221,6 +227,32 @@ export function migrateDb (db) {
   })
   ;(db.projects || []).forEach((p, index) => {
     if (!p.company) p.company = companyOf(p, index)
+  })
+
+  ;(db.relations || []).forEach(relation => {
+    if (!relation.configStatus) {
+      if (relation.status === '已生效') {
+        relation.configStatus = '启用'
+        relation.status = '启用'
+      } else if (relation.status === '已失效') {
+        relation.configStatus = '停用'
+        relation.status = '停用'
+        relation.stopReason = relation.stopReason || '历史关系失效'
+        relation.stoppedAt = relation.stoppedAt || (relation.endDate ? `${relation.endDate} 23:59` : '')
+        relation.stoppedBy = relation.stoppedBy || '历史数据'
+      } else {
+        relation.configStatus = '历史归档'
+        relation.status = '历史归档'
+        relation.archived = true
+        relation.archiveReason = '历史审批状态只读保留'
+      }
+    }
+    if (relation.archived === undefined) relation.archived = relation.configStatus === '历史归档'
+    if (relation.configStatus === '启用' && relation.status !== '启用') relation.status = '启用'
+    if (relation.configStatus === '停用' && relation.status !== '停用') relation.status = '停用'
+    if (relation.stopReason === undefined) relation.stopReason = ''
+    if (relation.stoppedAt === undefined) relation.stoppedAt = ''
+    if (relation.stoppedBy === undefined) relation.stoppedBy = ''
   })
 
   ;(db.sheets || []).forEach(sheet => {

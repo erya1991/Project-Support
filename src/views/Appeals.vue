@@ -202,15 +202,15 @@
     <!-- 发起销项 -->
     <a-modal title="发起诉求销项" :visible="closeVisible" :width="680" @cancel="closeVisible = false">
       <div class="alert-note warn" style="margin-bottom:12px;">
-        <a-icon type="exclamation-circle" /> 请填写办结说明并上传销项附件。
+        <a-icon type="exclamation-circle" /> 请填写办结说明；销项附件为选填，可根据实际情况上传。
       </div>
       <div class="close-field">
         <div class="form-label">办结说明 <span class="danger-text">*</span></div>
         <a-textarea v-model="closeReason" :rows="4" :max-length="500" placeholder="说明实际解决情况和办结结果" />
       </div>
       <div class="close-field">
-        <div class="form-label">销项附件 <span class="danger-text">*</span></div>
-        <file-uploader v-model="closeAttachments" tip="上传办结成果证明，如会议纪要、验收记录、现场照片" />
+        <div class="form-label">销项附件</div>
+        <file-uploader v-model="closeAttachments" tip="选填：可上传办结成果证明，如会议纪要、验收记录、现场照片" />
       </div>
       <template slot="footer">
         <a-button @click="closeVisible = false">关闭</a-button>
@@ -290,6 +290,7 @@
                 <span class="detail-label">销项附件</span>
                 <span class="detail-value">
                   <span v-for="(f, i) in current.closeRequest.attachments" :key="i" class="file-chip"><a-icon type="paper-clip" /> {{ f.name }}</span>
+                  <span v-if="!current.closeRequest.attachments || !current.closeRequest.attachments.length" class="muted">无</span>
                 </span>
               </div>
             </div>
@@ -655,7 +656,6 @@ export default {
     },
     submitClose () {
       if (!this.closeReason.trim()) return this.$message.warning('请填写办结说明')
-      if (!this.closeAttachments.length) return this.$message.warning('请上传销项附件')
       const res = this.$store.submitAppealClose(this.closeRecord.id, {
         reason: this.closeReason,
         attachments: this.closeAttachments

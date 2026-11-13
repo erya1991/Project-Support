@@ -108,20 +108,24 @@
             :pagination="workPagination"
             row-key="id"
             size="middle"
-            :scroll="{ x: 1355 }"
+            :scroll="{ x: 1250 }"
           >
             <div slot="cellTitle" slot-scope="text" class="work-title-cell" :title="text">{{ text }}</div>
-            <div slot="projectCount" slot-scope="text, record" class="project-count-cell">{{ projectCountText(record) }}</div>
             <div slot="progress" slot-scope="text, record" class="progress-cell">
-              <div class="progress-scope">{{ scopeText(record) }}</div>
-              <div v-if="hasExecution(record)" class="muted progress-summary">{{ resultSummary(record) }}</div>
+              <div class="progress-scope">{{ workProgressText(record) }}</div>
+              <div v-if="workMissingText(record)" class="muted progress-summary">{{ workMissingText(record) }}</div>
             </div>
             <div slot="status" slot-scope="text"><status-tag :status="text" /></div>
             <div slot="action" slot-scope="text, record" class="table-actions">
               <template v-if="record.status === '落实中'">
                 <a class="link-btn" @click="openExec(record)">填写执行情况</a>
                 <a-divider type="vertical" />
-                <a class="link-btn" @click="openClose(record)">申请销项</a>
+                <a
+                  class="link-btn"
+                  :class="{ disabled: !canClose(record) }"
+                  :title="canClose(record) ? '' : '请先补齐全部应填项目'"
+                  @click="canClose(record) && openClose(record)"
+                >申请销项</a>
                 <a-divider type="vertical" />
               </template>
               <template v-else-if="record.status === '销项审批中'">
@@ -298,7 +302,7 @@
         <div class="drawer-section" style="margin-top:16px;">
           <div class="drawer-section-title">
             执行情况
-            <span class="extra">{{ scopeText(workCurrent) }}</span>
+            <span class="extra">{{ workProgressText(workCurrent) }}</span>
           </div>
 
           <template v-if="workDrawerMode === 'exec'">
@@ -317,49 +321,38 @@
             </div>
 
             <div class="project-subtable">
+              <div class="alert-note" style="margin-bottom:8px;">
+                <a-icon type="info-circle" />
+                项目按该事项牵头人的有效帮扶关系自动生成，主责／协同均计入并按项目去重；可分批填写，申请销项时须全部填写完整。
+              </div>
               <div class="subtable-head">
-                <a-button size="small" type="primary" ghost @click="addProjectRow">
-                  <a-icon type="plus" /> 新增项目
-                </a-button>
-                <span class="muted">项目落实情况（可空，可添加多个项目）</span>
+                <span class="items-title">项目落实情况 <span class="muted">（{{ workProgressText(workCurrent) }}）</span></span>
               </div>
               <a-table
+                v-if="currentProjectRows.length"
                 :columns="projectExecColumns"
-                :data-source="projectRows"
+                :data-source="currentProjectRows"
                 :pagination="false"
                 size="small"
                 bordered
-                row-key="_key"
+                row-key="id"
                 :scroll="{ x: 960 }"
               >
-                <div slot="projectCell" slot-scope="text, record, index">
-                  <a-select
-                    :value="record.projectId"
-                    placeholder="选择关联项目"
-                    show-search
-                    option-filter-prop="children"
-                    style="width: 100%"
-                    @change="onProjectRowChange(index, $event)"
-                  >
-                    <a-select-option
-                      v-for="p in projectOptions"
-                      :key="p.id"
-                      :value="p.id"
-                      :disabled="isProjectUsed(p.id, index)"
-                    >{{ p.name }}</a-select-option>
-                  </a-select>
+                <div slot="projectCell" slot-scope="text, record">
+                  <span class="project-readonly">{{ record.projectName }}</span>
+                  <status-tag v-if="record.needsConfirm" status="需重新确认" />
                 </div>
                 <div slot="contentCell" slot-scope="text, record">
-                  <a-textarea v-model="record.content" :rows="2" :max-length="500" placeholder="填写该项目落实情况" />
+                  <a-textarea v-model="record.content" :rows="2" :max-length="500" placeholder="可分批填写该项目落实情况" />
                 </div>
                 <div slot="fileCell" slot-scope="text, record">
                   <file-uploader v-model="record.attachments" button-text="上传" />
                 </div>
-                <div slot="deleteCell" slot-scope="text, record, index">
-                  <a class="link-btn danger" @click="removeProjectRow(index)">删除</a>
+                <div slot="rowStatus" slot-scope="text, record">
+                  <status-tag :status="record.needsConfirm ? '需重新确认' : (record.content && record.content.trim() ? '已填写' : '未填写')" />
                 </div>
               </a-table>
-              <div v-if="!projectRows.length" class="form-tip">未添加项目时，可仅保存总体执行情况。</div>
+              <div v-else class="exec-empty">未配置有效帮扶项目，请先检查该事项牵头人的帮扶关系</div>
             </div>
           </template>
 
@@ -374,10 +367,10 @@
               </div>
             </div>
 
-            <div v-if="workCurrent.projectExecutions && workCurrent.projectExecutions.length" class="project-view">
+            <div v-if="currentProjectRows.length" class="project-view">
               <a-table
                 :columns="projectViewColumns"
-                :data-source="workCurrent.projectExecutions"
+                :data-source="currentProjectRows"
                 :pagination="false"
                 size="small"
                 bordered
@@ -395,7 +388,22 @@
                 </div>
               </a-table>
             </div>
-            <div v-else class="exec-empty">未关联项目</div>
+            <div v-else class="exec-empty">未配置有效帮扶项目</div>
+
+            <div v-if="historyProjectRows.length" class="history-projects">
+              <div class="drawer-section-title" style="margin-top:12px;">历史项目记录</div>
+              <a-table
+                :columns="historyColumns"
+                :data-source="historyProjectRows"
+                :pagination="false"
+                size="small"
+                row-key="id"
+                :scroll="{ x: 760 }"
+              >
+                <div slot="historyContent" slot-scope="text" class="view-content">{{ text || '—' }}</div>
+                <div slot="historyReason" slot-scope="text" class="muted">{{ text || '—' }}</div>
+              </a-table>
+            </div>
           </template>
         </div>
 
@@ -407,14 +415,15 @@
 
           <template v-if="workDrawerMode === 'close' && workCurrent.status === '落实中'">
             <div class="alert-note warn" style="margin-bottom:12px;">
-              <a-icon type="exclamation-circle" /> 销项将包含本事项总体执行情况及全部项目落实情况，请填写办结说明并上传佐证材料。
+              <a-icon type="exclamation-circle" /> 销项将包含本事项总体执行情况及全部当前应填项目，请填写办结说明并上传佐证材料。
             </div>
             <div class="close-snapshot">
               <div class="overall-label">总体执行情况</div>
               <div class="overall-content">{{ workCurrent.overallContent }}</div>
               <div class="close-projects">
-                项目落实情况：{{ workCurrent.projectExecutions.length ? workCurrent.projectExecutions.map(e => e.projectName).join('、') : '无关联项目' }}
+                当前应填项目：{{ currentProjectRows.length ? currentProjectRows.map(e => e.projectName).join('、') : '未配置有效帮扶项目' }}
               </div>
+              <div class="close-projects">项目落实进展：{{ workProgressText(workCurrent) }}</div>
             </div>
             <div class="exec-field">
               <div class="form-label">办结说明 <span class="danger-text">*</span></div>
@@ -462,7 +471,13 @@
           </template>
           <template v-else>
             <a-button v-if="workCurrent.status === '落实中'" type="primary" ghost @click="startExecFromView">填写执行情况</a-button>
-            <a-button v-if="workCurrent.status === '落实中'" type="primary" @click="startCloseFromView">申请销项</a-button>
+            <a-button
+              v-if="workCurrent.status === '落实中'"
+              type="primary"
+              :disabled="!canClose(workCurrent)"
+              :title="canClose(workCurrent) ? '' : '请先补齐全部应填项目'"
+              @click="startCloseFromView"
+            >申请销项</a-button>
           </template>
         </template>
       </template>
@@ -603,8 +618,7 @@ export default {
         { title: '重点工作', dataIndex: 'title', width: 240, scopedSlots: { customRender: 'cellTitle' } },
         { title: '牵头人', dataIndex: 'leadName', width: 74 },
         { title: '完成时限', dataIndex: 'dueDate', width: 110, align: 'center' },
-        { title: '关联项目', dataIndex: 'projectExecutions', key: 'projectCount', width: 90, align: 'center', scopedSlots: { customRender: 'projectCount' } },
-        { title: '落实进展', dataIndex: 'projectExecutions', key: 'progress', width: 170, scopedSlots: { customRender: 'progress' } },
+        { title: '项目落实进展', dataIndex: 'projectExecutions', key: 'progress', width: 170, scopedSlots: { customRender: 'progress' } },
         { title: '状态', dataIndex: 'status', width: 92, scopedSlots: { customRender: 'status' } },
         { title: '操作', width: 200, scopedSlots: { customRender: 'action' } }
       ]
@@ -623,30 +637,35 @@ export default {
     projectExecColumns () {
       return [
         { title: '序号', width: 50, align: 'center', customRender: (text, record, index) => index + 1 },
-        { title: '关联项目', width: 220, scopedSlots: { customRender: 'projectCell' }, customHeaderCell: () => ({ class: 'required-col' }) },
-        { title: '落实情况', width: 360, scopedSlots: { customRender: 'contentCell' }, customHeaderCell: () => ({ class: 'required-col' }) },
-        { title: '附件', width: 180, scopedSlots: { customRender: 'fileCell' } },
-        { title: '操作', width: 60, align: 'center', scopedSlots: { customRender: 'deleteCell' } }
+        { title: '关联项目', width: 220, scopedSlots: { customRender: 'projectCell' } },
+        { title: '落实情况', width: 340, scopedSlots: { customRender: 'contentCell' } },
+        { title: '附件', width: 170, scopedSlots: { customRender: 'fileCell' } },
+        { title: '状态', width: 100, align: 'center', scopedSlots: { customRender: 'rowStatus' } }
       ]
     },
     projectViewColumns () {
       return [
         { title: '序号', width: 50, align: 'center', customRender: (text, record, index) => index + 1 },
         { title: '关联项目', dataIndex: 'projectName', width: 220 },
-        { title: '落实情况', dataIndex: 'content', width: 400, scopedSlots: { customRender: 'viewContent' } },
-        { title: '附件', width: 170, scopedSlots: { customRender: 'viewFiles' } }
+        { title: '落实情况', dataIndex: 'content', width: 380, scopedSlots: { customRender: 'viewContent' } },
+        { title: '附件', width: 160, scopedSlots: { customRender: 'viewFiles' } }
       ]
     },
-    projectOptions () {
-      const work = this.workCurrent
-      if (!work) return []
-      const allowed = new Set()
-      const personIds = [work.leadId, this.$store.currentUser.id]
-      this.$store.db.relations.filter(r => r.status === '已生效' && personIds.indexOf(r.personId) > -1).forEach(r => {
-        allowed.add(r.projectId)
-      });
-      (work.projectExecutions || []).forEach(e => { if (e.projectId) allowed.add(e.projectId) })
-      return this.$store.db.projects.filter(p => allowed.has(p.id))
+    historyColumns () {
+      return [
+        { title: '序号', width: 50, align: 'center', customRender: (text, record, index) => index + 1 },
+        { title: '历史项目', dataIndex: 'projectName', width: 220 },
+        { title: '历史落实情况', dataIndex: 'content', width: 360, scopedSlots: { customRender: 'historyContent' } },
+        { title: '移出原因', dataIndex: 'removedReason', width: 180, scopedSlots: { customRender: 'historyReason' } }
+      ]
+    },
+    currentProjectRows () {
+      if (!this.workCurrent) return []
+      return (this.workCurrent.projectExecutions || []).filter(e => e.inScope !== false)
+    },
+    historyProjectRows () {
+      if (!this.workCurrent) return []
+      return (this.workCurrent.projectExecutions || []).filter(e => e.inScope === false)
     },
     workDrawerTitle () {
       if (!this.workCurrent) return '重点工作'
@@ -702,18 +721,23 @@ export default {
         this.applyWorkFilter()
       }
     },
-    hasExecution (work) {
-      return !!(work.overallContent || (work.projectExecutions && work.projectExecutions.length))
+    workProgress (work) {
+      return work ? this.$store.getWorkProgress(work) : { A: 0, B: 0, missing: [] }
     },
-    resultSummary (work) {
-      if (work.overallContent) return work.overallContent
-      const rows = work.projectExecutions || []
-      return rows.length ? this.execDisplay(rows[0]) : '待落实'
+    workProgressText (work) {
+      const p = this.workProgress(work)
+      if (!p.B) return '未配置有效帮扶项目'
+      return `${p.A}/${p.B}`
     },
-    projectCountText (work) {
-      const rows = work.projectExecutions || []
-      if (rows.length) return `${rows.length} 个`
-      return work.overallContent ? '公司级' : '待落实'
+    workMissingText (work) {
+      const p = this.workProgress(work)
+      if (!p.B) return '请先检查牵头人帮扶关系'
+      if (p.A === p.B) return '项目已全部填写'
+      return `未填 ${p.B - p.A} 项`
+    },
+    canClose (work) {
+      const p = this.workProgress(work)
+      return p.B > 0 && p.A === p.B
     },
     execDisplay (exec) {
       if (!exec) return ''
@@ -724,11 +748,6 @@ export default {
       if (content.indexOf(prefix) === 0) return content.slice(prefix.length)
       if (content.indexOf(prefix2) === 0) return content.slice(prefix2.length)
       return content
-    },
-    scopeText (work) {
-      const rows = work.projectExecutions || []
-      if (!rows.length) return work.overallContent ? '公司级 / 业务线级 · 不关联项目' : '待落实'
-      return `${rows.length} 个项目：${rows.map(p => p.projectName).join('、')}`
     },
     applySheetFilter () {
       this.appliedSheet = { ...this.sheetFilters }
@@ -885,12 +904,14 @@ export default {
     },
     openWorkDetail (work) {
       this.workCurrent = work
+      if (work.status === '落实中') this.$store.syncWorkProjectScope(work)
       this.workDrawerMode = 'view'
       this.workDrawerVisible = true
     },
     openExec (work) {
       this.workCurrent = work
       this.workDrawerMode = 'exec'
+      this.$store.syncWorkProjectScope(work)
       this.initExecForm(work)
       this.workDrawerVisible = true
     },
@@ -898,6 +919,16 @@ export default {
       this.workCurrent = work
       if (!work.overallContent || !work.overallContent.trim()) {
         this.$message.warning('请先填写总体执行情况，再申请销项')
+        this.openExec(work)
+        return
+      }
+      this.$store.syncWorkProjectScope(work)
+      const p = this.$store.getWorkProgress(work)
+      if (!p.B) {
+        return this.$message.warning('未配置有效帮扶项目，无法申请销项，请先检查牵头人帮扶关系')
+      }
+      if (p.A !== p.B) {
+        this.$message.warning(`项目落实进展 ${p.A}/${p.B}，请先补齐：${p.missing.map(m => m.projectName).join('、')}`)
         this.openExec(work)
         return
       }
@@ -919,64 +950,48 @@ export default {
     initExecForm (work) {
       this.overallContent = work.overallContent || ''
       this.overallAttachments = (work.overallAttachments || []).slice()
-      this.projectRows = (work.projectExecutions || []).map(e => ({
-        _key: e.id || `prow_${e.projectId}_${Math.random()}`,
-        projectId: e.projectId,
-        projectName: e.projectName,
-        content: this.execDisplay(e),
-        attachments: (e.attachments || []).slice()
-      }))
-    },
-    addProjectRow () {
-      this.projectRows.push({
-        _key: `prow_${Date.now()}_${Math.random()}`,
-        projectId: undefined,
-        projectName: '',
-        content: '',
-        attachments: []
-      })
-    },
-    removeProjectRow (index) {
-      this.projectRows.splice(index, 1)
-    },
-    isProjectUsed (projectId, index) {
-      return this.projectRows.some((row, i) => i !== index && row.projectId === projectId)
-    },
-    onProjectRowChange (index, projectId) {
-      const row = this.projectRows[index]
-      const project = this.$store.getProject(projectId)
-      row.projectId = projectId
-      row.projectName = project ? project.name : ''
+      this.projectRows = (work.projectExecutions || [])
+        .filter(e => e.inScope !== false)
+        .map(e => ({
+          _key: e.id || `prow_${e.projectId}_${Math.random()}`,
+          projectId: e.projectId,
+          projectName: e.projectName,
+          content: this.execDisplay(e),
+          attachments: (e.attachments || []).slice(),
+          needsConfirm: !!e.needsConfirm
+        }))
     },
     saveExec () {
       const work = this.workCurrent
       if (!work) return
       if (!this.overallContent.trim()) return this.$message.warning('请填写总体执行情况')
-      const rows = this.projectRows
-      for (let i = 0; i < rows.length; i++) {
-        if (!rows[i].projectId) return this.$message.warning(`第 ${i + 1} 行请选择关联项目`)
-        if (!rows[i].content.trim()) return this.$message.warning(`第 ${i + 1} 行请填写落实情况`)
-      }
       const res = this.$store.saveWorkExecutions(work.id, {
         overallContent: this.overallContent,
         overallAttachments: this.overallAttachments,
-        projects: rows.map(row => ({
+        projects: this.projectRows.map(row => ({
           projectId: row.projectId,
           content: row.content,
           attachments: row.attachments
         }))
       })
       if (!res.ok) return this.$message.error(res.message)
-      this.$message.success('执行情况已保存')
+      this.$message.success(`执行情况已保存，项目落实进展 ${res.progress.A}/${res.progress.B}`)
       this.workDrawerMode = 'view'
     },
     startExecFromView () {
       this.workDrawerMode = 'exec'
+      this.$store.syncWorkProjectScope(this.workCurrent)
       this.initExecForm(this.workCurrent)
     },
     startCloseFromView () {
       if (!this.workCurrent.overallContent || !this.workCurrent.overallContent.trim()) {
         return this.$message.warning('请先填写总体执行情况，再申请销项')
+      }
+      this.$store.syncWorkProjectScope(this.workCurrent)
+      const p = this.$store.getWorkProgress(this.workCurrent)
+      if (!p.B) return this.$message.warning('未配置有效帮扶项目，无法申请销项，请先检查牵头人帮扶关系')
+      if (p.A !== p.B) {
+        return this.$message.warning(`项目落实进展 ${p.A}/${p.B}，请先补齐：${p.missing.map(m => m.projectName).join('、')}`)
       }
       this.workDrawerMode = 'close'
       this.closeReason = ''

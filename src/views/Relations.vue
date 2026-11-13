@@ -26,7 +26,7 @@
             <a-select-option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="关系状态">
+        <a-form-item label="配置状态">
           <a-select v-model="filters.status" placeholder="全部状态" allow-clear style="width: 130px">
             <a-select-option v-for="s in statusOptions" :key="s" :value="s">{{ s }}</a-select-option>
           </a-select>
@@ -38,7 +38,7 @@
               <a-select-option value="协同">协同</a-select-option>
             </a-select>
           </a-form-item>
-          <a-form-item label="生效日期">
+          <a-form-item label="有效期">
             <a-range-picker v-model="filters.dateRange" style="width: 240px" />
           </a-form-item>
         </template>
@@ -57,7 +57,7 @@
 
     <div class="toolbar">
       <a-button type="primary" @click="openCreate"><a-icon type="plus" /> 新增帮扶关系</a-button>
-      <span class="toolbar-tip">每次配置一人一项目；同一人员多个项目、同一项目多名人员可多次新增。</span>
+      <span class="toolbar-tip">每次配置一人一项目，保存后直接启用；停用和重新启用均不需要审批。</span>
     </div>
 
     <a-table
@@ -66,7 +66,7 @@
       :pagination="pagination"
       row-key="id"
       size="middle"
-      :scroll="{ x: 1410 }"
+      :scroll="{ x: 1530 }"
     >
       <div slot="period" slot-scope="text, record" class="period-cell">
         <div>{{ record.startDate }}</div>
@@ -75,21 +75,16 @@
       <div slot="status" slot-scope="text">
         <status-tag :status="text" />
       </div>
+      <div slot="validity" slot-scope="text, record" class="validity-cell">
+        <span :class="{ 'validity-current': relationValidity(record) === '当前有效' }">{{ relationValidity(record) }}</span>
+      </div>
       <div slot="action" slot-scope="text, record" class="table-actions">
-        <a v-if="record.status === '草稿' || record.status === '已驳回'" class="link-btn" @click="submitOne(record)">提交审批</a>
-        <a v-else-if="record.status === '待审批'" class="link-btn" @click="openApproval(record)">审批</a>
-        <a v-else-if="record.status === '已生效'" class="link-btn" @click="openAdjust(record)">调整</a>
-        <a v-else class="link-btn" @click="openDetail(record)">详情</a>
+        <a v-if="canEdit(record)" class="link-btn" @click="openEdit(record)">编辑</a>
+        <a-divider v-if="canEdit(record) && record.configStatus !== '历史归档'" type="vertical" />
+        <a v-if="record.configStatus === '启用'" class="link-btn" @click="openStop(record)">停用</a>
+        <a v-else-if="record.configStatus === '停用'" class="link-btn" @click="enableRelation(record)">启用</a>
         <a-divider type="vertical" />
-        <a-dropdown :trigger="['click']">
-          <a class="link-btn" @click.stop>更多 <a-icon type="down" /></a>
-          <a-menu slot="overlay" @click="onMoreClick($event, record)">
-            <a-menu-item key="detail"><a-icon type="eye" /> 查看详情</a-menu-item>
-            <a-menu-item v-if="record.status === '草稿' || record.status === '已驳回'" key="edit"><a-icon type="edit" /> 编辑配置</a-menu-item>
-            <a-menu-item v-if="record.status === '草稿' || record.status === '已驳回'" key="submit"><a-icon type="audit" /> 提交审批</a-menu-item>
-            <a-menu-item v-if="record.status === '已生效'" key="invalidate"><a-icon type="stop" /> 关系失效</a-menu-item>
-          </a-menu>
-        </a-dropdown>
+        <a class="link-btn" @click="openDetail(record)">详情</a>
       </div>
     </a-table>
 
@@ -103,8 +98,8 @@
       <div class="alert-note" style="margin-bottom:14px;">
         <a-icon type="info-circle" />
         {{ formMode === 'create'
-          ? '每次配置一人一项目，保存后生成一条帮扶关系；可通过多次新增维护整体多对多关系。'
-          : '人员与项目如需变更，请将原关系失效后重新配置。' }}
+          ? '每次配置一人一项目，保存后直接启用；无需提交审批。'
+          : '人员与项目不可变更；可调整角色或有效期，保存后立即生效。' }}
       </div>
       <a-form-model :label-col="{ span: 7 }" :wrapper-col="{ span: 17 }" class="relation-form">
         <a-row :gutter="20">
@@ -186,12 +181,12 @@
             </a-form-model-item>
           </a-col>
           <a-col :span="12">
-            <a-form-model-item label="生效日期" required>
-              <a-date-picker v-model="form.startDate" style="width: 100%" placeholder="请选择生效日期" />
+            <a-form-model-item label="开始日期" required>
+              <a-date-picker v-model="form.startDate" style="width: 100%" placeholder="请选择开始日期" />
             </a-form-model-item>
           </a-col>
           <a-col :span="12">
-            <a-form-model-item label="失效日期">
+            <a-form-model-item label="结束日期">
               <a-date-picker v-model="form.endDate" style="width: 100%" placeholder="可为空，表示长期" />
             </a-form-model-item>
           </a-col>
@@ -210,51 +205,12 @@
 
       <template slot="footer">
         <a-button @click="formVisible = false">关闭</a-button>
-        <a-button type="primary" :loading="saving" @click="saveForm(false)">保存</a-button>
+        <a-button type="primary" :loading="saving" @click="saveForm">保存并启用</a-button>
       </template>
     </a-modal>
 
     <a-modal
-      title="调整帮扶关系"
-      :visible="adjustVisible"
-      :width="640"
-      :mask-closable="false"
-      @cancel="adjustVisible = false"
-    >
-      <div class="alert-note" style="margin-bottom:14px;">
-        <a-icon type="info-circle" /> 调整后关系继续生效，历史日报与事项不受影响。
-      </div>
-      <a-form-model :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
-        <a-form-model-item label="服务人员">
-          <div class="readonly-box">{{ adjustForm.personName }}</div>
-        </a-form-model-item>
-        <a-form-model-item label="服务项目">
-          <div class="readonly-box">{{ adjustForm.projectName }}</div>
-        </a-form-model-item>
-        <a-form-model-item label="帮扶角色" required>
-          <a-radio-group v-model="adjustForm.role">
-            <a-radio value="主责">主责</a-radio>
-            <a-radio value="协同">协同</a-radio>
-          </a-radio-group>
-        </a-form-model-item>
-        <a-form-model-item label="生效日期" required>
-          <a-date-picker v-model="adjustForm.startDate" style="width: 100%" />
-        </a-form-model-item>
-        <a-form-model-item label="失效日期">
-          <a-date-picker v-model="adjustForm.endDate" style="width: 100%" />
-        </a-form-model-item>
-        <a-form-model-item label="调整说明">
-          <a-textarea v-model="adjustForm.remark" :rows="2" placeholder="填写本次调整原因" />
-        </a-form-model-item>
-      </a-form-model>
-      <template slot="footer">
-        <a-button @click="adjustVisible = false">关闭</a-button>
-        <a-button type="primary" @click="saveAdjust">保存调整</a-button>
-      </template>
-    </a-modal>
-
-    <a-modal
-      title="关系失效"
+      title="停用帮扶关系"
       :visible="invalidateVisible"
       :width="560"
       :mask-closable="false"
@@ -263,10 +219,10 @@
       <div v-if="invalidateRecord" class="invalidate-body">
         <div class="alert-note warn">
           <a-icon type="exclamation-circle" />
-          失效后该关系不再生成新的日报任务，也不能再选择该关系登记新的项目诉求或项目执行记录；历史数据保留。
+          停用后该关系不再参与业务有效判断，也不再生成新的日报任务和重点工作应填项目；历史日报、诉求、项目执行记录保留。
         </div>
         <div v-if="invalidateAppealCount" class="alert-note error" style="margin-top:10px;">
-          <a-icon type="warning" /> 该人员仍有 <b>{{ invalidateAppealCount }}</b> 条未办结诉求，请先移交责任或明确后续责任人。
+          <a-icon type="warning" /> 该人员在该项目仍有 <b>{{ invalidateAppealCount }}</b> 条办理中诉求。若这是其最后一条有效关系，系统将阻止停用，请先转办或销项。
         </div>
         <div class="detail-grid one-col" style="margin-top:12px;">
           <div class="detail-item"><span class="detail-label">服务人员</span><span class="detail-value">{{ invalidateRecord.personName }}（{{ invalidateRecord.deptName }}）</span></div>
@@ -274,26 +230,15 @@
           <div class="detail-item"><span class="detail-label">当前有效期</span><span class="detail-value">{{ invalidateRecord.startDate }} 至 {{ invalidateRecord.endDate || '长期' }}</span></div>
         </div>
         <div style="margin-top:12px;">
-          <div class="form-label">失效原因 <span class="danger-text">*</span></div>
-          <a-textarea v-model="invalidateReason" :rows="3" placeholder="请填写关系失效原因，不少于5个字" />
+          <div class="form-label">停用原因 <span class="danger-text">*</span></div>
+          <a-textarea v-model="invalidateReason" :rows="3" placeholder="请填写停用原因，不少于5个字" />
         </div>
-        <a-checkbox v-if="invalidateAppealCount" v-model="invalidateAck" style="margin-top:10px;">
-          我已确认后续诉求处理责任人
-        </a-checkbox>
       </div>
       <template slot="footer">
         <a-button @click="invalidateVisible = false">关闭</a-button>
-        <a-button type="danger" :disabled="!canInvalidate" @click="confirmInvalidate">确认失效</a-button>
+        <a-button type="danger" :disabled="!canInvalidate" @click="confirmInvalidate">确认停用</a-button>
       </template>
     </a-modal>
-
-    <approval-modal
-      :visible.sync="approvalVisible"
-      title="帮扶关系联合审批"
-      :nodes="approvalNodes"
-      :entity-desc="approvalDesc"
-      @submit="handleApproval"
-    />
 
     <a-modal
       title="帮扶关系详情"
@@ -304,7 +249,8 @@
       <template v-if="current">
         <div class="detail-grid">
           <div class="detail-item"><span class="detail-label">关系编号</span><span class="detail-value">{{ current.id }}</span></div>
-          <div class="detail-item"><span class="detail-label">关系状态</span><span class="detail-value"><status-tag :status="current.status" /></span></div>
+          <div class="detail-item"><span class="detail-label">配置状态</span><span class="detail-value"><status-tag :status="current.configStatus" /></span></div>
+          <div class="detail-item"><span class="detail-label">当前有效性</span><span class="detail-value">{{ relationValidity(current) }}</span></div>
           <div class="detail-item"><span class="detail-label">总部服务人员</span><span class="detail-value">{{ current.personName }}</span></div>
           <div class="detail-item"><span class="detail-label">所属部门</span><span class="detail-value">{{ current.deptName }}</span></div>
           <div class="detail-item"><span class="detail-label">服务项目</span><span class="detail-value">{{ current.projectName }}</span></div>
@@ -312,10 +258,14 @@
           <div class="detail-item"><span class="detail-label">帮扶角色</span><span class="detail-value">{{ current.role }}</span></div>
           <div class="detail-item full"><span class="detail-label">有效期</span><span class="detail-value">{{ current.startDate }} 至 {{ current.endDate || '长期' }}</span></div>
           <div class="detail-item full"><span class="detail-label">配置说明</span><span class="detail-value">{{ current.remark || '—' }}</span></div>
+          <div v-if="current.stopReason" class="detail-item full"><span class="detail-label">停用原因</span><span class="detail-value">{{ current.stopReason }}（{{ current.stoppedAt }}，{{ current.stoppedBy }}）</span></div>
         </div>
       </template>
       <template slot="footer">
         <a-button @click="detailVisible = false">关闭</a-button>
+        <a-button v-if="current && current.configStatus === '启用'" danger @click="openStop(current)">停用</a-button>
+        <a-button v-if="current && current.configStatus === '停用'" type="primary" @click="enableRelation(current)">启用</a-button>
+        <a-button v-if="current && canEdit(current)" @click="openEdit(current)">编辑</a-button>
       </template>
     </a-modal>
   </div>
@@ -324,12 +274,11 @@
 <script>
 import moment from 'moment'
 import StatusTag from '../components/StatusTag.vue'
-import ApprovalModal from '../components/ApprovalModal.vue'
 import { fmtDate } from '../utils/date'
 
 export default {
   name: 'RelationsView',
-  components: { StatusTag, ApprovalModal },
+  components: { StatusTag },
   data () {
     return {
       expanded: false,
@@ -346,14 +295,9 @@ export default {
       editingId: null,
       saving: false,
       form: { personId: undefined, projectId: undefined, role: '主责', startDate: null, endDate: null, remark: '' },
-      adjustVisible: false,
-      adjustForm: { id: '', personName: '', projectName: '', role: '主责', startDate: null, endDate: null, remark: '' },
       invalidateVisible: false,
       invalidateRecord: null,
       invalidateReason: '',
-      invalidateAck: false,
-      approvalVisible: false,
-      approvalRecord: null,
       detailVisible: false,
       current: null
     }
@@ -369,7 +313,7 @@ export default {
       return this.$store.db.departments
     },
     statusOptions () {
-      return ['草稿', '待审批', '已生效', '已驳回', '已失效']
+      return ['启用', '停用', '历史归档']
     },
     formPerson () {
       return this.form.personId ? this.$store.getPerson(this.form.personId) : null
@@ -383,7 +327,7 @@ export default {
         if (f.personId && r.personId !== f.personId) return false
         if (f.projectId && r.projectId !== f.projectId) return false
         if (f.deptId && r.deptId !== f.deptId) return false
-        if (f.status && r.status !== f.status) return false
+        if (f.status && r.configStatus !== f.status) return false
         if (f.role && r.role !== f.role) return false
         if (f.dateRange && f.dateRange.length === 2) {
           const start = fmtDate(f.dateRange[0])
@@ -407,27 +351,22 @@ export default {
         { title: '项目经理联系方式', dataIndex: 'projectId', key: 'managerPhone', width: 128, customRender: id => this.projectManagerPhone(id) },
         { title: '帮扶角色', dataIndex: 'role', width: 70, align: 'center' },
         { title: '有效期', dataIndex: 'startDate', width: 132, scopedSlots: { customRender: 'period' } },
-        { title: '关系状态', dataIndex: 'status', width: 86, scopedSlots: { customRender: 'status' } },
-        { title: '操作', width: 120, scopedSlots: { customRender: 'action' } }
+        { title: '配置状态', dataIndex: 'configStatus', width: 90, scopedSlots: { customRender: 'status' } },
+        { title: '当前有效', dataIndex: 'configStatus', key: 'validity', width: 96, scopedSlots: { customRender: 'validity' } },
+        { title: '操作', width: 150, scopedSlots: { customRender: 'action' } }
       ]
-    },
-    approvalNodes () {
-      return this.approvalRecord ? this.approvalRecord.approvals : []
-    },
-    approvalDesc () {
-      if (!this.approvalRecord) return ''
-      const count = this.$store.db.relations.filter(r => r.batchId === this.approvalRecord.batchId && r.status === '待审批').length
-      return `本次联合审批对应批次 ${this.approvalRecord.batchId}，共 ${count} 条关系，审批通过后整批生效。`
     },
     invalidateAppealCount () {
       if (!this.invalidateRecord) return 0
-      return this.$store.db.appeals.filter(a => a.personId === this.invalidateRecord.personId && a.status !== '已销项').length
+      return this.$store.db.appeals.filter(a =>
+        a.personId === this.invalidateRecord.personId &&
+        a.projectId === this.invalidateRecord.projectId &&
+        a.status === '办理中'
+      ).length
     },
     canInvalidate () {
       if (!this.invalidateRecord) return false
-      if (this.invalidateReason.trim().length < 5) return false
-      if (this.invalidateAppealCount && !this.invalidateAck) return false
-      return true
+      return this.invalidateReason.trim().length >= 5
     }
   },
   methods: {
@@ -490,24 +429,33 @@ export default {
       }
       this.formVisible = true
     },
-    saveForm (submit) {
+    canEdit (record) {
+      return !!record && !record.archived && record.configStatus !== '历史归档'
+    },
+    relationValidity (record) {
+      return this.$store.relationValidity(record)
+    },
+    saveForm () {
       if (!this.form.personId) return this.$message.warning('请选择总部服务人员')
       if (!this.form.projectId) return this.$message.warning('请选择帮扶项目')
-      if (!this.form.startDate) return this.$message.warning('请选择生效日期')
+      if (!this.form.startDate) return this.$message.warning('请选择开始日期')
       if (this.form.endDate && fmtDate(this.form.endDate) < fmtDate(this.form.startDate)) {
-        return this.$message.warning('失效日期不得早于生效日期')
+        return this.$message.warning('结束日期不得早于开始日期')
       }
       this.saving = true
       try {
         if (this.formMode === 'edit') {
-          this.$store.updateDraftRelation(this.editingId, {
+          const res = this.$store.updateRelation(this.editingId, {
             role: this.form.role,
             startDate: fmtDate(this.form.startDate),
             endDate: fmtDate(this.form.endDate),
             remark: this.form.remark
           })
-          if (submit) this.$store.submitRelations([this.editingId])
-          this.$message.success(submit ? '已提交联合审批' : '配置草稿已保存')
+          if (!res.ok) {
+            this.$message.error(res.message)
+            return
+          }
+          this.$message.success('帮扶关系已更新')
         } else {
           const res = this.$store.createRelations({
             personIds: [this.form.personId],
@@ -518,15 +466,13 @@ export default {
             remark: this.form.remark
           })
           if (res.skipped.length) {
-            this.$message.warning(`已跳过 ${res.skipped.length} 条重复关系：${res.skipped[0]}`)
+            this.$message.warning(`已跳过重复关系：${res.skipped[0]}`)
           }
           if (!res.created.length) {
-            this.$message.error('未生成新的帮扶关系，请检查人员与项目是否均已存在有效关系')
-            this.saving = false
+            this.$message.error('未生成新的帮扶关系，请检查人员与项目是否已存在重叠的启用关系')
             return
           }
-          if (submit) this.$store.submitRelations(res.created.map(r => r.id))
-          this.$message.success('帮扶关系草稿已保存')
+          this.$message.success('帮扶关系已保存并启用')
         }
         this.formVisible = false
         this.query()
@@ -534,87 +480,36 @@ export default {
         this.saving = false
       }
     },
-    submitOne (record) {
-      this.$confirm({
-        title: '提交联合审批',
-        content: `将提交 ${record.personName} — ${record.projectName} 所在批次的全部关系至工程管理部、企划部联合审批，确认提交？`,
-        okText: '提交',
-        cancelText: '取消',
-        onOk: () => {
-          this.$store.submitRelations([record.id])
-          this.$message.success('已提交联合审批')
-          this.query()
-        }
-      })
-    },
-    openApproval (record) {
-      this.approvalRecord = record
-      this.approvalVisible = true
-    },
-    handleApproval ({ action, comment }) {
-      const record = this.approvalRecord
-      if (!record) return
-      const res = this.$store.approveRelationBatch(record.batchId, action, comment)
-      if (!res.ok) {
-        this.$message.error(res.message)
-        return
-      }
-      this.approvalVisible = false
-      this.$message.success(action === 'pass' ? (res.finished ? '联合审批已通过，关系已生效' : '当前审批节点已通过') : '已退回配置人修改')
-      this.query()
-    },
-    openAdjust (record) {
-      this.adjustForm = {
-        id: record.id,
-        personName: record.personName,
-        projectName: record.projectName,
-        role: record.role,
-        startDate: record.startDate ? moment(record.startDate) : null,
-        endDate: record.endDate ? moment(record.endDate) : null,
-        remark: ''
-      }
-      this.adjustVisible = true
-    },
-    saveAdjust () {
-      if (!this.adjustForm.startDate) return this.$message.warning('请选择生效日期')
-      if (this.adjustForm.endDate && fmtDate(this.adjustForm.endDate) < fmtDate(this.adjustForm.startDate)) {
-        return this.$message.warning('失效日期不得早于生效日期')
-      }
-      this.$store.adjustRelation(this.adjustForm.id, {
-        role: this.adjustForm.role,
-        startDate: fmtDate(this.adjustForm.startDate),
-        endDate: fmtDate(this.adjustForm.endDate),
-        remark: this.adjustForm.remark
-      })
-      this.adjustVisible = false
-      this.$message.success('帮扶关系已调整，变更历史已保留')
-      this.query()
-    },
-    openInvalidate (record) {
+    openStop (record) {
       this.invalidateRecord = record
       this.invalidateReason = ''
-      this.invalidateAck = false
       this.invalidateVisible = true
     },
     confirmInvalidate () {
-      const res = this.$store.invalidateRelation(this.invalidateRecord.id, this.invalidateReason)
-      if (!res.ok) return
+      const res = this.$store.stopRelation(this.invalidateRecord.id, this.invalidateReason)
+      if (!res.ok) return this.$message.error(res.message)
       this.invalidateVisible = false
-      this.$message.success('帮扶关系已失效')
+      this.$message.success('帮扶关系已停用')
       this.query()
+    },
+    enableRelation (record) {
+      const self = this
+      this.$confirm({
+        title: '启用帮扶关系',
+        content: `确认重新启用 ${record.personName} — ${record.projectName} 的帮扶关系？启用后按有效期参与业务判断。`,
+        okText: '启用',
+        cancelText: '取消',
+        onOk () {
+          const res = self.$store.enableRelation(record.id)
+          if (!res.ok) return self.$message.error(res.message)
+          self.$message.success('帮扶关系已启用')
+          self.query()
+        }
+      })
     },
     openDetail (record) {
       this.current = record
       this.detailVisible = true
-    },
-    onMoreClick (event, record) {
-      this.handleMore(event.key, record)
-    },
-    handleMore (key, record) {
-      if (key === 'detail') this.openDetail(record)
-      else if (key === 'edit') this.openEdit(record)
-      else if (key === 'submit') this.submitOne(record)
-      else if (key === 'invalidate') this.openInvalidate(record)
     }
   }
 }

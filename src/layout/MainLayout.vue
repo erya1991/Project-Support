@@ -70,7 +70,7 @@
               :key="tile.label"
               class="work-tile"
               :class="{ active: tile.active }"
-              :title="tile.active ? '进入总部赋能' : tile.label"
+              :title="tile.active ? '进入服务项目' : tile.label"
               @click="tile.active && go('/overview')"
             >
               <a-icon :type="tile.icon" class="tile-icon" :class="tile.color" />
@@ -81,8 +81,8 @@
 
         <div class="side-block module-block">
           <div class="side-heading module-heading">
-            <span><a-icon type="rocket" /> 总部赋能</span>
-            <span class="module-sub">服务项目</span>
+            <span><a-icon type="rocket" /> 服务项目</span>
+            <span class="module-sub">业务办理</span>
           </div>
           <div class="module-menu">
             <div
@@ -123,7 +123,7 @@
         <div class="page-panel">
           <div class="breadcrumb-row">
             <a-icon type="home" />
-            <span>总部赋能</span>
+            <span>服务项目</span>
             <a-icon type="right" class="crumb-sep" />
             <span class="crumb-current">{{ currentTitle }}</span>
           </div>
@@ -237,7 +237,7 @@ export default {
         { label: '法律合规', icon: 'safety-certificate', color: 'c-orange' },
         { label: '科技公司', icon: 'experiment', color: 'c-blue' },
         { label: '安全生产', icon: 'alert', color: 'c-orange' },
-        { label: '总部赋能', icon: 'rocket', color: 'c-blue', active: true }
+        { label: '服务项目', icon: 'rocket', color: 'c-blue', active: true }
       ]
     }
   },
@@ -327,10 +327,6 @@ export default {
       t.sheets.forEach(s => approvalItems.push({ title: `重点工作梳理单创建审批 ${s.id}`, desc: `${s.deptName} · 待企划部审核`, path: '/works' }))
       t.workCloses.forEach(w => approvalItems.push({ title: `重点工作销项审批 ${w.closeRequest.id}`, desc: w.title, path: '/works' }))
       t.appealCloses.forEach(a => approvalItems.push({ title: `诉求销项审批 ${a.closeRequest.id}`, desc: `${a.projectName} · ${a.title}`, path: '/appeals' }))
-      t.relationBatches.forEach(b => {
-        const count = this.$store.db.relations.filter(r => r.batchId === b && r.status === '待审批').length
-        approvalItems.push({ title: `帮扶关系联合审批（${count} 条）`, desc: `批次 ${b}`, path: '/relations' })
-      })
       t.suggestions.forEach(s => approvalItems.push({ title: `制度改进建议流程待办 ${s.id}`, desc: s.title, path: '/suggestions' }))
       return [
         { key: 'daily', title: '待填日报', color: 'blue', items: dailyItems },
@@ -343,6 +339,8 @@ export default {
     $route: {
       immediate: true,
       handler (route) {
+        this.$store.syncAllWorkProjectScopes()
+        this.$store.persist()
         if (route.path === '/overview') return
         if (!this.visited.some(t => t.path === route.path)) {
           this.visited.push({ path: route.path, title: route.meta.title, closable: true })
