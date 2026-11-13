@@ -329,13 +329,13 @@
                 <span class="items-title">项目落实情况 <span class="muted">（{{ workProgressText(workCurrent) }}）</span></span>
               </div>
               <a-table
-                v-if="currentProjectRows.length"
+                v-if="projectRows.length"
                 :columns="projectExecColumns"
-                :data-source="currentProjectRows"
+                :data-source="projectRows"
                 :pagination="false"
                 size="small"
                 bordered
-                row-key="id"
+                row-key="_key"
                 :scroll="{ x: 960 }"
               >
                 <div slot="projectCell" slot-scope="text, record">
