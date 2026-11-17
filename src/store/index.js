@@ -1182,7 +1182,7 @@ const store = {
     const dept = this.getDept(payload.deptId)
     const { confirmers, nodes } = this.suggestionFlow(payload.confirmerIds)
     const suggestion = {
-      id: nextCode(this.db.suggestions, `ZHJY${todayStr().slice(0, 4)}`, 4),
+      id: nextCode(this.db.suggestions, `ZDJY${todayStr().slice(0, 4)}`, 4),
       title: payload.title,
       flow: payload.flow,
       desc: payload.desc,

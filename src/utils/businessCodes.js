@@ -1,8 +1,8 @@
-const LEGACY_PREFIXES = { SL: 'ZDGZ', SQ: 'XMSQ', JY: 'ZHJY' }
+const LEGACY_PREFIXES = { SL: 'ZDGZ', SQ: 'XMSQ', JY: 'ZDJY', ZHJY: 'ZDJY' }
 
 function normalizeCode (code) {
   if (typeof code !== 'string') return code
-  const match = code.match(/^(SL|SQ|JY)(\d{4})(\d+)$/)
+  const match = code.match(/^(SL|SQ|JY|ZHJY)(\d{4})(\d+)$/)
   return match ? `${LEGACY_PREFIXES[match[1]]}${match[2]}${match[3].padStart(4, '0')}` : code
 }
 

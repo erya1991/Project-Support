@@ -41,7 +41,7 @@ async function main () {
       const seed = buildSeed()
       for (const [key, pattern, first] of [
         ['relations', /^BF\d{8}$/, 'BF20260001'], ['sheets', /^ZDGZ\d{8}$/, 'ZDGZ20260001'],
-        ['appeals', /^XMSQ\d{8}$/, 'XMSQ20260001'], ['suggestions', /^ZHJY\d{8}$/, 'ZHJY20260001']
+        ['appeals', /^XMSQ\d{8}$/, 'XMSQ20260001'], ['suggestions', /^ZDJY\d{8}$/, 'ZDJY20260001']
       ]) {
         assert.equal(seed[key][0].id, first)
         assert.ok(seed[key].every(row => pattern.test(row.id)))
@@ -56,15 +56,15 @@ async function main () {
       const sheet = store.saveSheet({ deptId: 'D01', system: '生产', items: [{ title: '编号回归工作', leadId: 'P01', dueDate: todayStr() }] }, true)
       const appeal = store.createAppeal({ ...store.db.appeals[0], title: '编号回归诉求' })
       const suggestion = store.createSuggestion(suggestionPayload())
-      for (const [row, prefix] of [[relation, 'BF'], [sheet, 'ZDGZ'], [appeal, 'XMSQ'], [suggestion, 'ZHJY']]) {
+      for (const [row, prefix] of [[relation, 'BF'], [sheet, 'ZDGZ'], [appeal, 'XMSQ'], [suggestion, 'ZDJY']]) {
         assert.match(row.id, new RegExp(`^${prefix}${year}\\d{4}$`))
       }
       assert.equal(workDisplayCode(store.db.works.find(w => w.sheetId === sheet.id)), `${sheet.id}-01`)
       assert.ok(store.db.dailyReports.some(r => r.appealId === appeal.id))
       const next = store.createSuggestion(suggestionPayload())
       assert.equal(Number(next.id.slice(-4)), Number(suggestion.id.slice(-4)) + 1)
-      store.db.suggestions = [{ id: `ZHJY${Number(year) - 1}9999` }]
-      assert.equal(store.createSuggestion(suggestionPayload()).id, `ZHJY${year}0001`)
+      store.db.suggestions = [{ id: `ZDJY${Number(year) - 1}9999` }]
+      assert.equal(store.createSuggestion(suggestionPayload()).id, `ZDJY${year}0001`)
     })
     check('已有 V1.4 缓存仅换业务编号，关联、历史日报及内部 ID 无损且可重复迁移', () => {
       const db = JSON.parse(JSON.stringify(store.db))
@@ -78,6 +78,7 @@ async function main () {
       db.dailyReports.filter(r => r.appealId === 'XMSQ20260001').forEach(r => { r.appealId = 'SQ20260001' })
       db.dailyReports.at(-1).appealId = `SQ${year}0090`
       db.suggestions[0].id = 'JY2026001'
+      db.suggestions[1].id = 'ZHJY20260002'
       const restored = migrateDb(db)
       assert.deepEqual(restored, expected)
       assert.deepEqual(migrateDb(restored), expected)
