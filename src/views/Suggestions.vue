@@ -19,16 +19,34 @@
             <a-select-option value="待回复">待回复</a-select-option>
           </a-select>
         </a-form-item>
+        <template v-if="expanded">
+        <a-form-item label="确认负责人">
+          <a-select v-model="filters.confirmerId" placeholder="全部负责人" allow-clear show-search option-filter-prop="children" style="width: 160px">
+            <a-select-option v-for="p in allStaff" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="办理状态">
+          <a-select v-model="filters.status" placeholder="全部状态" allow-clear style="width: 130px">
+            <a-select-option v-for="s in ['待确认', '已回复', '已退回', '已归档']" :key="s" :value="s">{{ s }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="提出部门">
+          <a-select v-model="filters.proposerDeptId" placeholder="全部部门" allow-clear show-search option-filter-prop="children" style="width: 180px">
+            <a-select-option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</a-select-option>
+          </a-select>
+        </a-form-item>
         <a-form-item label="提出日期">
           <a-range-picker v-model="filters.dateRange" style="width: 230px" />
         </a-form-item>
         <a-form-item label="关键词">
-          <a-input v-model="filters.keyword" placeholder="建议事项 / 制度流程" allow-clear style="width: 180px" />
+          <a-input v-model="filters.keyword" placeholder="编号 / 事项 / 制度 / 问题 / 回复" allow-clear style="width: 250px" @pressEnter="query" />
         </a-form-item>
+        </template>
         <a-form-item>
           <div class="filter-actions">
             <a-button type="primary" @click="query"><a-icon type="search" /> 查询</a-button>
             <a-button @click="reset"><a-icon type="reload" /> 重置</a-button>
+            <span class="filter-toggle" @click="expanded = !expanded">{{ expanded ? '收起' : '展开' }} <a-icon :type="expanded ? 'up' : 'down'" /></span>
           </div>
         </a-form-item>
       </a-form>
@@ -43,6 +61,8 @@
       :columns="columns"
       :data-source="filteredSuggestions"
       :pagination="pagination"
+      @change="onTableChange"
+      :scroll="{ x: 1450 }"
       row-key="id"
       size="middle"
     >
@@ -62,7 +82,14 @@
         <span v-else class="muted">{{ record.status === '已退回' ? '已退回' : '待部门确认' }}</span>
       </div>
       <div slot="createdAt" slot-scope="text">{{ (text || '').slice(0, 10) }}</div>
+      <div slot="status" slot-scope="text"><status-tag :status="text" /></div>
       <div slot="action" slot-scope="text, record" class="table-actions">
+        <template v-if="canEdit(record)">
+          <a class="link-btn" @click="openEdit(record)">{{ record.status === '已退回' ? '修改重提' : '编辑' }}</a>
+          <a-divider type="vertical" />
+          <a v-if="$store.canDeleteSuggestion(record)" class="link-btn danger" @click="deleteSuggestion(record)">删除</a>
+          <a-divider v-if="$store.canDeleteSuggestion(record)" type="vertical" />
+        </template>
         <template v-if="record.status === '待确认' || record.status === '已回复'">
           <a class="link-btn" @click="openFlow(record)">流程办理</a>
           <a-divider type="vertical" />
@@ -73,7 +100,7 @@
 
     <!-- 新增建议 -->
     <a-modal
-      title="新增制度改进建议"
+      :title="editingId ? '编辑制度改进建议' : '新增制度改进建议'"
       :visible="formVisible"
       :width="880"
       :mask-closable="false"
@@ -87,7 +114,7 @@
         <a-row :gutter="18">
           <a-col :span="12">
             <a-form-model-item label="提出人 / 部门">
-              <div class="readonly-box">{{ currentUser.name }} / {{ proposerDeptName }}</div>
+              <div class="readonly-box">{{ editingId ? editingProposer : currentUser.name + ' / ' + proposerDeptName }}</div>
             </a-form-model-item>
           </a-col>
           <a-col :span="12">
@@ -137,7 +164,7 @@
       </a-form-model>
       <template slot="footer">
         <a-button @click="formVisible = false">关闭</a-button>
-        <a-button type="primary" @click="saveSuggestion">保存</a-button>
+        <a-button type="primary" @click="saveSuggestion">{{ resubmitting ? '保存并重新提交' : '保存' }}</a-button>
       </template>
     </a-modal>
 
@@ -230,6 +257,7 @@
         </div>
         <div class="detail-grid">
           <div class="detail-item"><span class="detail-label">建议编号</span><span class="detail-value">{{ current.id }}</span></div>
+          <div class="detail-item"><span class="detail-label">办理状态</span><span class="detail-value"><status-tag :status="current.status" /></span></div>
           <div class="detail-item"><span class="detail-label">提出时间</span><span class="detail-value">{{ current.createdAt }}</span></div>
           <div class="detail-item"><span class="detail-label">提出人</span><span class="detail-value">{{ current.proposerName }}</span></div>
           <div class="detail-item"><span class="detail-label">提出部门</span><span class="detail-value">{{ current.proposerDeptName }}</span></div>
@@ -295,15 +323,22 @@ import moment from 'moment'
 import StatusTag from '../components/StatusTag.vue'
 import FileUploader from '../components/FileUploader.vue'
 import { fmtDate } from '../utils/date'
+import { matchesKeyword } from '../utils/listQuery'
+
+const emptyFilters = () => ({ deptId: undefined, proposerId: undefined, proposerDeptId: undefined, confirmerId: undefined, status: undefined, adopt: undefined, dateRange: null, keyword: '' })
 
 export default {
   name: 'SuggestionsView',
   components: { StatusTag, FileUploader },
   data () {
     return {
-      filters: { deptId: undefined, proposerId: undefined, adopt: undefined, dateRange: null, keyword: '' },
-      applied: { deptId: undefined, proposerId: undefined, adopt: undefined, dateRange: null, keyword: '' },
-      pagination: { pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
+      expanded: false,
+      filters: emptyFilters(),
+      applied: emptyFilters(),
+      pagination: { current: 1, pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
+      editingId: null,
+      editingProposer: '',
+      resubmitting: false,
       formVisible: false,
       form: { deptId: undefined, title: '', flow: '', desc: '', confirmerIds: [], attachments: [] },
       flowVisible: false,
@@ -327,6 +362,9 @@ export default {
     people () {
       return this.$store.db.people
     },
+    allStaff () {
+      return this.$store.allStaff()
+    },
     confirmerOptions () {
       if (!this.form.deptId) return []
       return this.$store.staffOfDept(this.form.deptId)
@@ -336,6 +374,9 @@ export default {
       let rows = this.$store.db.suggestions.slice()
       if (f.deptId) rows = rows.filter(s => s.deptId === f.deptId)
       if (f.proposerId) rows = rows.filter(s => s.proposerId === f.proposerId)
+      if (f.proposerDeptId) rows = rows.filter(s => s.proposerDeptId === f.proposerDeptId)
+      if (f.confirmerId) rows = rows.filter(s => (s.confirmers || []).some(c => c.id === f.confirmerId))
+      if (f.status) rows = rows.filter(s => s.status === f.status)
       if (f.adopt) {
         if (f.adopt === '待回复') rows = rows.filter(s => !(s.confirmers || []).some(c => c.reply))
         else rows = rows.filter(s => (s.confirmers || []).some(c => c.reply && c.reply.adopt === f.adopt))
@@ -346,8 +387,8 @@ export default {
         rows = rows.filter(s => s.createdAt.slice(0, 10) >= start && s.createdAt.slice(0, 10) <= end)
       }
       if (f.keyword) {
-        const kw = f.keyword.trim()
-        rows = rows.filter(s => `${s.id}${s.title}${s.flow}${s.proposerName}`.indexOf(kw) > -1)
+        rows = rows.filter(s => matchesKeyword(f.keyword, [s.id, s.title, s.flow, s.desc, s.proposerName, s.archiveOpinion,
+          ...(s.confirmers || []).flatMap(c => c.reply ? [c.reply.adopt, c.reply.reason, c.reply.plan, c.reply.comment] : [])]))
       }
       return rows
     },
@@ -366,20 +407,60 @@ export default {
         { title: '确认负责人', dataIndex: 'confirmers', width: 90, scopedSlots: { customRender: 'confirmers' } },
         { title: '回复意见', dataIndex: 'reply', width: 190, scopedSlots: { customRender: 'reply' } },
         { title: '提出时间', dataIndex: 'createdAt', width: 100, scopedSlots: { customRender: 'createdAt' } },
-        { title: '操作', width: 120, scopedSlots: { customRender: 'action' } }
+        { title: '办理状态', dataIndex: 'status', width: 90, scopedSlots: { customRender: 'status' } },
+        { title: '操作', width: 240, scopedSlots: { customRender: 'action' } }
       ]
     }
   },
+  mounted () {
+    this.applyRouteQuery()
+  },
+  watch: { '$route.query': 'applyRouteQuery' },
   methods: {
+    applyRouteQuery () {
+      const record = this.$store.db.suggestions.find(s => s.id === this.$route.query.id)
+      if (record) this.openDetail(record)
+    },
+    onTableChange ({ current, pageSize }) {
+      Object.assign(this.pagination, { current, pageSize })
+    },
+    canEdit (record) {
+      return this.$store.canEditSuggestion(record)
+    },
+    openEdit (record) {
+      if (!this.canEdit(record)) return
+      this.detailVisible = false
+      this.editingId = record.id
+      this.editingProposer = `${record.proposerName} / ${record.proposerDeptName}`
+      this.resubmitting = record.status === '已退回'
+      this.form = { deptId: record.deptId, title: record.title, flow: record.flow, desc: record.desc,
+        confirmerIds: (record.confirmerIds || record.confirmers.map(c => c.id)).slice(), attachments: (record.attachments || []).slice() }
+      this.formVisible = true
+    },
+    deleteSuggestion (record) {
+      this.$confirm({
+        title: '删除制度改进建议', content: `确认删除“${record.title}”？`, okText: '删除', okType: 'danger', cancelText: '取消',
+        onOk: () => {
+          const res = this.$store.deleteSuggestion(record.id)
+          if (!res.ok) return this.$message.error(res.message)
+          this.detailVisible = false
+          this.query()
+          this.$message.success('建议已删除')
+        }
+      })
+    },
     query () {
       this.applied = { ...this.filters }
       this.pagination = { ...this.pagination, current: 1 }
     },
     reset () {
-      this.filters = { deptId: undefined, proposerId: undefined, adopt: undefined, dateRange: null, keyword: '' }
-      this.applied = { ...this.filters }
+      this.filters = emptyFilters()
+      this.query()
     },
     openCreate () {
+      this.editingId = null
+      this.editingProposer = ''
+      this.resubmitting = false
       this.form = { deptId: undefined, title: '', flow: '', desc: '', confirmerIds: [], attachments: [] }
       this.formVisible = true
     },
@@ -393,16 +474,23 @@ export default {
       if (!this.form.flow.trim()) return this.$message.warning('请填写涉及制度/流程')
       if (!this.form.desc.trim()) return this.$message.warning('请填写问题描述')
       if (!this.form.confirmerIds.length) return this.$message.warning('请选择确认部门负责人')
-      this.$store.createSuggestion({
+      const payload = {
         deptId: this.form.deptId,
         title: this.form.title,
         flow: this.form.flow,
         desc: this.form.desc,
         confirmerIds: this.form.confirmerIds,
         attachments: this.form.attachments
-      })
+      }
+      if (this.editingId) {
+        const res = this.$store.updateSuggestion(this.editingId, payload)
+        if (!res.ok) return this.$message.error(res.message)
+      } else {
+        this.$store.createSuggestion(payload)
+      }
       this.formVisible = false
-      this.$message.success('制度改进建议已保存')
+      this.query()
+      this.$message.success(this.resubmitting ? '建议已修改并重新提交确认' : '制度改进建议已保存')
     },
     replyReplies (record) {
       return (record.confirmers || []).filter(c => c.reply)

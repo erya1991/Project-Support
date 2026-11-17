@@ -32,6 +32,24 @@
           </a-select>
         </a-form-item>
         <template v-if="expanded">
+          <a-form-item label="所属单位">
+            <a-select v-model="filters.company" placeholder="全部单位" allow-clear style="width: 150px">
+              <a-select-option v-for="c in companies" :key="c" :value="c">{{ c }}</a-select-option>
+            </a-select>
+          </a-form-item>
+          <a-form-item label="项目经理">
+            <a-select v-model="filters.manager" placeholder="全部经理" allow-clear show-search option-filter-prop="children" style="width: 130px">
+              <a-select-option v-for="m in projectManagers" :key="m" :value="m">{{ m }}</a-select-option>
+            </a-select>
+          </a-form-item>
+          <a-form-item label="当前有效">
+            <a-select v-model="filters.validity" placeholder="全部" allow-clear style="width: 140px">
+              <a-select-option v-for="s in ['当前有效', '未到生效日', '已过结束日', '已停用', '历史归档']" :key="s" :value="s">{{ s }}</a-select-option>
+            </a-select>
+          </a-form-item>
+          <a-form-item label="关键词">
+            <a-input v-model="filters.keyword" placeholder="关系编号 / 工号 / 联系方式 / 说明" allow-clear style="width: 270px" @pressEnter="query" />
+          </a-form-item>
           <a-form-item label="帮扶角色">
             <a-select v-model="filters.role" placeholder="全部角色" allow-clear style="width: 110px">
               <a-select-option value="主责">主责</a-select-option>
@@ -64,6 +82,7 @@
       :columns="columns"
       :data-source="filteredRelations"
       :pagination="pagination"
+      @change="onTableChange"
       row-key="id"
       size="middle"
       :scroll="{ x: 1530 }"
@@ -205,7 +224,7 @@
 
       <template slot="footer">
         <a-button @click="formVisible = false">关闭</a-button>
-        <a-button type="primary" :loading="saving" @click="saveForm">保存并启用</a-button>
+        <a-button type="primary" :loading="saving" @click="saveForm">{{ formMode === 'create' ? '保存并启用' : '保存' }}</a-button>
       </template>
     </a-modal>
 
@@ -275,6 +294,9 @@
 import moment from 'moment'
 import StatusTag from '../components/StatusTag.vue'
 import { fmtDate } from '../utils/date'
+import { matchesKeyword } from '../utils/listQuery'
+
+const emptyFilters = () => ({ personId: undefined, projectId: undefined, deptId: undefined, status: undefined, role: undefined, dateRange: null, company: undefined, manager: undefined, validity: undefined, keyword: '' })
 
 export default {
   name: 'RelationsView',
@@ -282,9 +304,10 @@ export default {
   data () {
     return {
       expanded: false,
-      filters: { personId: undefined, projectId: undefined, deptId: undefined, status: undefined, role: undefined, dateRange: null },
-      applied: { personId: undefined, projectId: undefined, deptId: undefined, status: undefined, role: undefined, dateRange: null },
+      filters: emptyFilters(),
+      applied: emptyFilters(),
       pagination: {
+        current: 1,
         pageSize: 10,
         showSizeChanger: true,
         showTotal: total => `共 ${total} 条`,
@@ -315,6 +338,12 @@ export default {
     statusOptions () {
       return ['启用', '停用', '历史归档']
     },
+    companies () {
+      return [...new Set(this.projects.map(p => p.company).filter(Boolean))]
+    },
+    projectManagers () {
+      return [...new Set(this.projects.map(p => p.manager).filter(Boolean))]
+    },
     formPerson () {
       return this.form.personId ? this.$store.getPerson(this.form.personId) : null
     },
@@ -329,6 +358,12 @@ export default {
         if (f.deptId && r.deptId !== f.deptId) return false
         if (f.status && r.configStatus !== f.status) return false
         if (f.role && r.role !== f.role) return false
+        const person = this.$store.getPerson(r.personId) || {}
+        const project = this.$store.getProject(r.projectId) || {}
+        if (f.company && project.company !== f.company) return false
+        if (f.manager && r.projectManager !== f.manager) return false
+        if (f.validity && this.relationValidity(r) !== f.validity) return false
+        if (!matchesKeyword(f.keyword, [r.id, person.employeeNo, person.phone, project.managerPhone, r.personName, r.projectName, r.remark])) return false
         if (f.dateRange && f.dateRange.length === 2) {
           const start = fmtDate(f.dateRange[0])
           const end = fmtDate(f.dateRange[1])
@@ -369,7 +404,20 @@ export default {
       return this.invalidateReason.trim().length >= 5
     }
   },
+  mounted () {
+    this.applyRouteQuery()
+  },
+  watch: {
+    '$route.query': 'applyRouteQuery'
+  },
   methods: {
+    applyRouteQuery () {
+      const record = this.$store.db.relations.find(r => r.id === this.$route.query.id)
+      if (record) this.openDetail(record)
+    },
+    onTableChange ({ current, pageSize }) {
+      Object.assign(this.pagination, { current, pageSize })
+    },
     deptName (id) {
       const dept = this.$store.getDept(id)
       return dept ? dept.name : ''
@@ -389,18 +437,11 @@ export default {
     onPersonChange () {},
     onProjectChange () {},
     query () {
-      this.applied = {
-        personId: this.filters.personId,
-        projectId: this.filters.projectId,
-        deptId: this.filters.deptId,
-        status: this.filters.status,
-        role: this.filters.role,
-        dateRange: this.filters.dateRange
-      }
+      this.applied = { ...this.filters }
       this.pagination = { ...this.pagination, current: 1 }
     },
     reset () {
-      this.filters = { personId: undefined, projectId: undefined, deptId: undefined, status: undefined, role: undefined, dateRange: null }
+      this.filters = emptyFilters()
       this.query()
     },
     openCreate () {
@@ -417,6 +458,7 @@ export default {
       this.formVisible = true
     },
     openEdit (record) {
+      this.detailVisible = false
       this.formMode = 'edit'
       this.editingId = record.id
       this.form = {
@@ -481,6 +523,7 @@ export default {
       }
     },
     openStop (record) {
+      this.detailVisible = false
       this.invalidateRecord = record
       this.invalidateReason = ''
       this.invalidateVisible = true

@@ -3,15 +3,13 @@
     <div class="section-title">
       服务项目概览
       <span class="section-extra">
-        <span style="margin-right:6px;">统计日期</span>
-        <a-date-picker v-model="statDate" size="small" :allow-clear="false" style="width: 138px; margin-right: 10px;" />
         数据来源：帮扶关系、诉求台账、诉求日报实时汇总
       </span>
     </div>
 
     <div class="stat-groups">
       <div class="stat-group">
-        <div class="stat-group-title"><a-icon type="team" /> 人员服务与到岗</div>
+        <div class="stat-group-title"><a-icon type="team" /> 人员今日到岗</div>
         <div class="stat-group-row">
           <div class="stat-group-cell clickable" @click="openAttendance">
             <div class="stat-label">服务人员数</div>
@@ -51,7 +49,7 @@
       </div>
 
       <div class="stat-group">
-        <div class="stat-group-title"><a-icon type="form" /> 日报填报</div>
+        <div class="stat-group-title"><a-icon type="form" /> 今日日报填报</div>
         <div class="stat-group-row">
           <div class="stat-group-cell clickable" @click="goDaily('')">
             <div class="stat-label">当日应填</div>
@@ -83,6 +81,10 @@
       </a-tabs>
 
       <div class="ledger-filter">
+        <template v-if="ledgerTab === 'reports'">
+          <span>统计日期</span>
+          <a-date-picker v-model="ledgerDate" :allow-clear="false" style="width: 145px" />
+        </template>
         <a-input
           v-model="ledgerKeyword"
           placeholder="输入人员、项目、事项关键词"
@@ -100,6 +102,16 @@
         >
           <a-select-option v-for="s in ledgerStatusOptions" :key="s" :value="s">{{ s }}</a-select-option>
         </a-select>
+        <a-select v-model="ledgerDeptId" placeholder="全部部门" allow-clear show-search option-filter-prop="children" style="width: 160px">
+          <a-select-option v-for="d in $store.db.departments" :key="d.id" :value="d.id">{{ d.name }}</a-select-option>
+        </a-select>
+        <a-select v-model="ledgerPersonId" placeholder="全部人员" allow-clear show-search option-filter-prop="children" style="width: 130px">
+          <a-select-option v-for="p in $store.allStaff()" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
+        </a-select>
+        <a-select v-if="ledgerTab !== 'suggestions'" v-model="ledgerProjectId" placeholder="全部项目" allow-clear show-search option-filter-prop="children" style="width: 170px">
+          <a-select-option v-for="p in $store.db.projects" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
+        </a-select>
+        <a-button @click="resetLedger">重置</a-button>
         <span class="muted">共 {{ ledgerRows.length }} 条</span>
         <a class="ledger-more" @click="goLedgerModule">查看全部 <a-icon type="right" /></a>
       </div>
@@ -139,7 +151,7 @@
       @cancel="attendanceVisible = false"
     >
       <div class="alert-note" style="margin-bottom:12px;">
-        <a-icon type="info-circle" /> 统计日期：{{ statDay }}。人员到岗按人去重统计，同一人员服务多个项目时只计 1 人次；未提交日报不计为未到岗。
+        <a-icon type="info-circle" /> 统计日期：{{ today }}。人员到岗按人去重统计，同一人员服务多个项目时只计 1 人次；未提交日报不计为未到岗。
       </div>
       <a-table
         :columns="attendanceColumns"
@@ -212,7 +224,7 @@
             <div class="detail-item"><span class="detail-label">姓名</span><span class="detail-value">{{ ledgerDetail.row.personName }}</span></div>
             <div class="detail-item"><span class="detail-label">部门</span><span class="detail-value">{{ ledgerDetail.row.deptName }}</span></div>
             <div class="detail-item"><span class="detail-label">项目</span><span class="detail-value">{{ ledgerDetail.row.projectName }}</span></div>
-            <div class="detail-item"><span class="detail-label">是否到岗</span><span class="detail-value">{{ ledgerDetail.row.attend === true ? '是' : (ledgerDetail.row.attend === false ? '否' : '尚未填报') }}</span></div>
+            <div class="detail-item"><span class="detail-label">是否到岗</span><span class="detail-value">{{ ledgerDetail.row.attendText }}</span></div>
             <div class="detail-item"><span class="detail-label">冻结状态</span><span class="detail-value"><status-tag :status="ledgerDetail.row.frozen ? '已冻结' : '未冻结'" /></span></div>
             <div class="detail-item full"><span class="detail-label">对应诉求事项</span><span class="detail-value">{{ ledgerDetail.row.appealTitle }}</span></div>
             <div class="detail-item full"><span class="detail-label">当日工作开展情况</span><span class="detail-value">{{ ledgerDetail.row.workContent || '—' }}</span></div>
@@ -245,7 +257,8 @@
 <script>
 import moment from 'moment'
 import StatusTag from '../components/StatusTag.vue'
-import { todayStr, fmtDate } from '../utils/date'
+import { todayStr, fmtDate, isFrozen } from '../utils/date'
+import { matchesKeyword } from '../utils/listQuery'
 import { workResultText } from '../utils/reportData'
 
 export default {
@@ -254,7 +267,10 @@ export default {
   data () {
     return {
       today: todayStr(),
-      statDate: moment(),
+      ledgerDate: moment(),
+      ledgerDeptId: undefined,
+      ledgerPersonId: undefined,
+      ledgerProjectId: undefined,
       ledgerTab: 'relations',
       ledgerKeyword: '',
       ledgerStatus: undefined,
@@ -265,18 +281,18 @@ export default {
   },
   computed: {
     stats () {
-      return this.$store.overviewStats(this.statDay)
+      return this.$store.overviewStats(this.today)
     },
-    statDay () {
-      return fmtDate(this.statDate) || this.today
+    ledgerDay () {
+      return fmtDate(this.ledgerDate) || this.today
     },
     ledgerStatusOptions () {
       const map = {
-        relations: ['草稿', '待审批', '已生效', '已驳回', '已失效'],
+        relations: ['启用', '停用', '历史归档'],
         works: ['待生效', '落实中', '销项审批中', '已销项'],
         appeals: ['办理中', '销项审批中', '已销项', '已删除'],
         reports: ['未填写', '已提交'],
-        suggestions: []
+        suggestions: ['待确认', '已回复', '已退回', '已归档']
       }
       return map[this.ledgerTab] || []
     },
@@ -336,7 +352,8 @@ export default {
         { title: '建议事项', dataIndex: 'title', width: 300, scopedSlots: { customRender: 'content' } },
         { title: '主责部门', dataIndex: 'deptName', width: 170 },
         { title: '提出人', dataIndex: 'proposerName', width: 82 },
-        { title: '回复结论', dataIndex: 'replyText', width: 100 }
+        { title: '回复意见', dataIndex: 'replyText', width: 200, scopedSlots: { customRender: 'content' } },
+        statusCol
       ]
     },
     ledgerRows () {
@@ -346,42 +363,50 @@ export default {
       if (this.ledgerTab === 'relations') {
         rows = this.$store.db.relations.map(r => ({
           ...r,
+          status: r.configStatus,
           period: `${r.startDate} 至 ${r.endDate || '长期'}`
         }))
-        if (kw) rows = rows.filter(r => `${r.personName}${r.deptName}${r.projectName}`.indexOf(kw) > -1)
+        if (kw) rows = rows.filter(r => matchesKeyword(kw, [r.id, r.personName, r.deptName, r.projectName, r.projectManager, r.remark, (this.$store.getPerson(r.personId) || {}).employeeNo]))
         if (st) rows = rows.filter(r => r.status === st)
       } else if (this.ledgerTab === 'works') {
         rows = this.$store.db.works.map(w => ({
           ...w,
           result: workResultText(w)
         }))
-        if (kw) rows = rows.filter(r => `${r.title}${r.deptName}${r.leadName}`.indexOf(kw) > -1)
+        if (kw) rows = rows.filter(r => matchesKeyword(kw, [r.id, r.title, r.deptName, r.leadName, r.problem, r.suggestion, r.result]))
         if (st) rows = rows.filter(r => r.status === st)
       } else if (this.ledgerTab === 'appeals') {
         rows = this.$store.db.appeals.filter(a => a.status !== '已删除')
         if (st === '已删除') rows = this.$store.db.appeals.filter(a => a.status === '已删除')
-        if (kw) rows = rows.filter(r => `${r.title}${r.projectName}${r.personName}`.indexOf(kw) > -1)
+        if (kw) rows = rows.filter(r => matchesKeyword(kw, [r.id, r.title, r.projectName, r.personName, r.desc, r.plan, r.latestProgress]))
         if (st && st !== '已删除') rows = rows.filter(r => r.status === st)
       } else if (this.ledgerTab === 'reports') {
-        rows = this.$store.reportsForDate(this.today)
+        rows = this.$store.db.dailyReports.filter(r => !r.legacy && r.date === this.ledgerDay &&
+          (r.status === '已提交' || !this.$store.db.appeals.some(a => a.id === r.appealId && a.status === '已删除')))
           .map(r => ({
             ...r,
+            frozen: isFrozen(r.date),
             workContent: r.status === '已提交' ? r.workContent : '',
             newIssues: r.status === '已提交' ? r.newIssues : '',
-            attendText: r.attend === true ? '是' : (r.attend === false ? '否' : '未填')
+            attendText: r.status === '已提交' ? (r.attend === true ? '是' : (r.attend === false ? '否' : '未填')) : '未填'
           }))
-        if (kw) rows = rows.filter(r => `${r.personName}${r.deptName}${r.projectName}${r.appealTitle || ''}`.indexOf(kw) > -1)
+        if (kw) rows = rows.filter(r => matchesKeyword(kw, [r.id, r.personName, r.deptName, r.projectName, r.appealTitle, r.workContent, r.newIssues]))
         if (st) rows = rows.filter(r => r.status === st)
       } else {
         rows = this.$store.db.suggestions.map(s => {
           const replies = (s.confirmers || []).filter(c => c.reply)
           return {
             ...s,
-            replyText: replies.length ? (replies.some(c => c.reply.adopt === '改') ? '改' : '不改') : '待回复'
+            replyText: replies.length ? replies.map(c => `${c.name}：${c.reply.adopt}；${c.reply.reason || c.reply.plan || ''}；${c.reply.comment || ''}`).join('；') : (s.status === '已退回' ? '已退回' : '待回复')
           }
         })
-        if (kw) rows = rows.filter(r => `${r.title}${r.deptName}${r.proposerName}`.indexOf(kw) > -1)
+        if (kw) rows = rows.filter(r => matchesKeyword(kw, [r.id, r.title, r.flow, r.desc, r.deptName, r.proposerName, r.replyText, r.archiveOpinion]))
       }
+      if (st) rows = rows.filter(r => r.status === st)
+      if (this.ledgerDeptId) rows = rows.filter(r => r.deptId === this.ledgerDeptId)
+      if (this.ledgerPersonId) rows = rows.filter(r => (r.personId || r.leadId || r.proposerId) === this.ledgerPersonId)
+      if (this.ledgerProjectId) rows = rows.filter(r => r.projectId === this.ledgerProjectId ||
+        (r.projectExecutions || []).some(e => e.inScope !== false && e.projectId === this.ledgerProjectId))
       return rows
     },
     ledgerDetailTitle () {
@@ -401,9 +426,7 @@ export default {
           }
         }
         map[r.personId].projects.push(r.projectName)
-        const reports = this.$store.db.dailyReports.filter(rep =>
-          !rep.legacy && rep.date === this.statDay && rep.personId === r.personId && rep.projectId === r.projectId
-        )
+        const reports = this.$store.reportsForDate(this.today).filter(rep => rep.personId === r.personId && rep.projectId === r.projectId)
         reports.forEach(rep => map[r.personId].reports.push(rep))
       })
       return Object.values(map).map(row => {
@@ -440,7 +463,7 @@ export default {
       this.$router.push({ path: '/appeals', query })
     },
     goDaily (status) {
-      const query = { tab: 'all' }
+      const query = { tab: 'all', date: this.today }
       if (status) query.status = status
       this.$router.push({ path: '/daily', query })
     },
@@ -449,21 +472,32 @@ export default {
         type: this.ledgerTab,
         row: record,
         result: record.result,
-        projectNames: (record.projectExecutions || []).map(e => e.projectName).join('、')
+        projectNames: (record.projectExecutions || []).filter(e => e.inScope !== false).map(e => e.projectName).join('、')
       }
       this.detailVisible = true
     },
     onLedgerTabChange () {
       this.ledgerStatus = undefined
       this.ledgerKeyword = ''
+      this.ledgerDeptId = undefined
+      this.ledgerPersonId = undefined
+      this.ledgerProjectId = undefined
     },
-    goLedgerModule () {
+    resetLedger () {
+      this.onLedgerTabChange()
+      this.ledgerDate = moment()
+    },
+    goLedgerModule (record) {
       const map = { relations: '/relations', works: '/works', appeals: '/appeals', reports: '/daily', suggestions: '/suggestions' }
-      this.$router.push(map[this.ledgerTab])
+      const query = {}
+      if (this.ledgerTab === 'reports') Object.assign(query, { tab: 'all', date: this.ledgerDay })
+      if (this.ledgerTab === 'works') query.tab = 'works'
+      if (record && record.id) query.id = record.id
+      this.$router.push({ path: map[this.ledgerTab], query })
     },
     jumpToModule () {
       this.detailVisible = false
-      this.goLedgerModule()
+      this.goLedgerModule(this.ledgerDetail.row)
     }
   }
 }
@@ -549,6 +583,7 @@ export default {
 }
 .ledger-filter {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;

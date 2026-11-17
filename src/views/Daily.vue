@@ -66,7 +66,7 @@
               </div>
               <div class="mine-card-foot">
                 <div class="mine-actions">
-                  <template v-if="report.frozen">
+                  <template v-if="!canFillReport(report)">
                     <a-button size="small" @click.stop="openReport(report, 'view')">查看</a-button>
                   </template>
                   <template v-else-if="report.status === '已提交'">
@@ -116,8 +116,23 @@
                 <div class="filter-actions">
                   <a-button type="primary" @click="applyAllFilter"><a-icon type="search" /> 查询</a-button>
                   <a-button @click="resetAllFilter"><a-icon type="reload" /> 重置</a-button>
+                  <span class="filter-toggle" @click="allExpanded = !allExpanded">{{ allExpanded ? '收起' : '展开' }} <a-icon :type="allExpanded ? 'up' : 'down'" /></span>
                 </div>
               </a-form-item>
+              <template v-if="allExpanded">
+                <a-form-item label="是否到岗">
+                  <a-select v-model="allFilters.attend" placeholder="全部" allow-clear style="width: 120px">
+                    <a-select-option v-for="s in ['是', '否', '未填报']" :key="s" :value="s">{{ s }}</a-select-option>
+                  </a-select>
+                </a-form-item>
+                <a-form-item label="冻结状态">
+                  <a-select v-model="allFilters.frozen" placeholder="全部" allow-clear style="width: 120px">
+                    <a-select-option value="已冻结">已冻结</a-select-option><a-select-option value="未冻结">未冻结</a-select-option>
+                  </a-select>
+                </a-form-item>
+                <a-form-item label="提交时间"><a-range-picker v-model="allFilters.submitRange" style="width: 230px" /></a-form-item>
+                <a-form-item label="关键词"><a-input v-model="allFilters.keyword" placeholder="诉求 / 工作开展情况 / 协调问题" allow-clear style="width: 270px" @pressEnter="applyAllFilter" /></a-form-item>
+              </template>
             </a-form>
           </div>
 
@@ -136,6 +151,7 @@
             :columns="allColumns"
             :data-source="allReports"
             :pagination="allPagination"
+            @change="onAllTableChange"
             row-key="id"
             size="middle"
             :scroll="{ x: 1230 }"
@@ -157,8 +173,10 @@
             <div slot="submitTime" slot-scope="text">{{ text || '—' }}</div>
             <div slot="action" slot-scope="text, record" class="table-actions">
               <a class="link-btn" @click="openReport(record, 'view')">查看日报</a>
-              <a-divider type="vertical" />
-              <a class="link-btn" @click="openReport(record, 'admin')">管理员修订</a>
+              <template v-if="record.status === '已提交' && !record.legacy">
+                <a-divider type="vertical" />
+                <a class="link-btn" @click="openReport(record, 'admin')">管理员修订</a>
+              </template>
             </div>
           </a-table>
         </div>
@@ -179,11 +197,20 @@
           </div>
 
           <div class="weekly-summary">{{ weekly.summary || '请选择自然周' }}</div>
+          <div class="filter-bar">
+            <a-form layout="inline">
+              <a-form-item label="人员"><a-select v-model="weeklyFilters.personId" placeholder="全部人员" allow-clear show-search option-filter-prop="children" style="width: 130px"><a-select-option v-for="p in people" :key="p.id" :value="p.id">{{ p.name }}</a-select-option></a-select></a-form-item>
+              <a-form-item label="部门"><a-select v-model="weeklyFilters.deptId" placeholder="全部部门" allow-clear show-search option-filter-prop="children" style="width: 170px"><a-select-option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</a-select-option></a-select></a-form-item>
+              <a-form-item label="项目"><a-select v-model="weeklyFilters.projectId" placeholder="全部项目" allow-clear show-search option-filter-prop="children" style="width: 170px"><a-select-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</a-select-option></a-select></a-form-item>
+              <a-form-item label="关键词"><a-input v-model="weeklyFilters.keyword" placeholder="诉求 / 工作 / 协调问题 / 未到岗原因" allow-clear style="width: 280px" @pressEnter="applyWeeklyFilter" /></a-form-item>
+              <a-form-item><div class="filter-actions"><a-button type="primary" @click="applyWeeklyFilter">查询</a-button><a-button @click="resetWeeklyFilter">重置</a-button></div></a-form-item>
+            </a-form>
+          </div>
 
           <div class="weekly-section-title">未到岗人员情况</div>
           <a-table
             :columns="weeklyAbsentColumns"
-            :data-source="weekly.absentRows"
+            :data-source="weeklyAbsentRows"
             :pagination="false"
             row-key="rowKey"
             size="small"
@@ -192,12 +219,12 @@
             <div slot="needs" slot-scope="text" class="needs-cell" :title="text">{{ text }}</div>
             <div slot="reason" slot-scope="text" class="needs-cell" :title="text">{{ text }}</div>
           </a-table>
-          <div v-if="!weekly.absentRows.length" class="empty-hint">本周暂无未到岗记录</div>
+          <div v-if="!weeklyAbsentRows.length" class="empty-hint">当前条件下暂无未到岗记录</div>
 
           <div class="weekly-section-title" style="margin-top:14px;">服务项目人员情况</div>
           <a-table
             :columns="weeklyServiceColumns"
-            :data-source="weekly.serviceRows"
+            :data-source="weeklyServiceRows"
             :pagination="false"
             row-key="rowKey"
             size="small"
@@ -207,7 +234,7 @@
             <div slot="work" slot-scope="text" class="needs-cell" :title="text">{{ text }}</div>
             <div slot="issues" slot-scope="text" class="needs-cell" :title="text">{{ text }}</div>
           </a-table>
-          <div class="weekly-foot muted">周度汇总按自然周统计，日报明细按单条诉求输出；到岗人数按人员与日期去重。</div>
+          <div class="weekly-foot muted">周度汇总及导出按完整自然周统计；查询条件筛选下方明细，到岗人数按人员与日期去重。</div>
         </div>
       </a-tab-pane>
     </a-tabs>
@@ -339,6 +366,10 @@ import StatusTag from '../components/StatusTag.vue'
 import { todayStr, fmtDate, isFrozen } from '../utils/date'
 import { buildWeeklyReport } from '../utils/reportData'
 import { exportDailyExcel, exportWeeklyExcel } from '../utils/exportExcel'
+import { matchesKeyword, inDateRange } from '../utils/listQuery'
+
+const emptyAllFilters = () => ({ date: moment(), projectId: undefined, personId: undefined, deptId: undefined, status: undefined, attend: undefined, frozen: undefined, submitRange: null, keyword: '' })
+const emptyWeeklyFilters = () => ({ personId: undefined, deptId: undefined, projectId: undefined, keyword: '' })
 
 export default {
   name: 'DailyView',
@@ -351,9 +382,12 @@ export default {
       people: [],
       departments: [],
       mineDate: moment(),
-      allFilters: { date: moment(), projectId: undefined, personId: undefined, deptId: undefined, status: undefined },
-      appliedAll: { date: todayStr(), projectId: undefined, personId: undefined, deptId: undefined, status: undefined },
-      allPagination: { pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
+      allExpanded: false,
+      allFilters: emptyAllFilters(),
+      appliedAll: { ...emptyAllFilters(), date: todayStr() },
+      allPagination: { current: 1, pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
+      weeklyFilters: emptyWeeklyFilters(),
+      appliedWeekly: emptyWeeklyFilters(),
       weekValue: week,
       reportDrawerVisible: false,
       reportCurrent: null,
@@ -374,6 +408,7 @@ export default {
       this.projects.forEach((p, index) => { order[p.id] = index })
       return this.$store.db.dailyReports
         .filter(r => !r.legacy && !this.deletedAppealIds.has(r.appealId) && r.date === date && r.personId === this.$store.currentUser.id)
+        .map(r => ({ ...r, frozen: isFrozen(r.date) }))
         .sort((a, b) => (order[a.projectId] || 0) - (order[b.projectId] || 0) || (a.appealTitle || '').localeCompare(b.appealTitle || '', 'zh'))
     },
     myStats () {
@@ -387,12 +422,16 @@ export default {
       const f = this.appliedAll
       const order = {}
       this.people.forEach((p, index) => { order[p.id] = index })
-      let rows = this.$store.db.dailyReports.filter(r => !r.legacy && !this.deletedAppealIds.has(r.appealId))
+      let rows = this.$store.db.dailyReports.filter(r => !r.legacy && (r.status === '已提交' || !this.deletedAppealIds.has(r.appealId)))
       if (f.date) rows = rows.filter(r => r.date === f.date)
       if (f.projectId) rows = rows.filter(r => r.projectId === f.projectId)
       if (f.personId) rows = rows.filter(r => r.personId === f.personId)
       if (f.deptId) rows = rows.filter(r => r.deptId === f.deptId)
       if (f.status) rows = rows.filter(r => r.status === f.status)
+      if (f.attend) rows = rows.filter(r => f.attend === '未填报' ? r.status !== '已提交' : r.status === '已提交' && r.attend === (f.attend === '是'))
+      if (f.frozen) rows = rows.filter(r => isFrozen(r.date) === (f.frozen === '已冻结'))
+      rows = rows.filter(r => inDateRange(r.submitTime, f.submitRange) && matchesKeyword(f.keyword, [r.id, r.appealId, r.appealTitle, r.workContent, r.newIssues, r.absentReason]))
+      rows = rows.map(r => ({ ...r, frozen: isFrozen(r.date) }))
       return rows.sort((a, b) => b.date.localeCompare(a.date) || (order[a.personId] || 0) - (order[b.personId] || 0) || (a.appealTitle || '').localeCompare(b.appealTitle || '', 'zh'))
     },
     allStats () {
@@ -426,6 +465,12 @@ export default {
     weekly () {
       return buildWeeklyReport(this.$store.db, this.weekStart.format('YYYY-MM-DD'), this.weekEnd.format('YYYY-MM-DD'))
     },
+    weeklyAbsentRows () {
+      return this.filterWeeklyRows(this.weekly.absentRows)
+    },
+    weeklyServiceRows () {
+      return this.filterWeeklyRows(this.weekly.serviceRows)
+    },
     weeklyAbsentColumns () {
       return [
         { title: '序号', dataIndex: 'rowKey', width: 50, align: 'center', customRender: (t, r, i) => i + 1 },
@@ -457,9 +502,9 @@ export default {
     },
     reportEditable () {
       if (!this.reportCurrent) return false
-      if (this.reportMode === 'admin') return true
+      if (this.reportMode === 'admin') return this.reportCurrent.status === '已提交' && !this.reportCurrent.legacy
       if (this.reportMode === 'view') return false
-      return !this.reportCurrent.frozen
+      return this.canFillReport(this.reportCurrent)
     },
     appealDetailReports () {
       return this.appealDetailCurrent ? this.$store.reportsForAppeal(this.appealDetailCurrent.id) : []
@@ -488,9 +533,31 @@ export default {
     }
   },
   methods: {
+    onAllTableChange ({ current, pageSize }) {
+      Object.assign(this.allPagination, { current, pageSize })
+    },
+    canFillReport (report) {
+      return !report.legacy && !this.deletedAppealIds.has(report.appealId) && report.date === todayStr()
+    },
+    filterWeeklyRows (rows) {
+      const f = this.appliedWeekly
+      return rows.filter(r => (!f.personId || r.personId === f.personId) && (!f.deptId || r.deptId === f.deptId) &&
+        (!f.projectId || r.projectId === f.projectId) && matchesKeyword(f.keyword, [r.needs, r.reason, r.workContent, r.issues]))
+    },
+    applyWeeklyFilter () {
+      this.appliedWeekly = { ...this.weeklyFilters }
+    },
+    resetWeeklyFilter () {
+      this.weeklyFilters = emptyWeeklyFilters()
+      this.applyWeeklyFilter()
+    },
     applyTabQuery () {
       const q = this.$route.query
       if (q.tab && ['mine', 'all', 'weekly'].indexOf(q.tab) > -1) this.activeTab = q.tab
+      if (q.tab === 'all') {
+        this.allFilters = { ...emptyAllFilters(), date: q.date ? moment(q.date, 'YYYY-MM-DD') : moment(), status: q.status, personId: q.personId }
+        this.applyAllFilter()
+      }
       if (q.status) {
         this.activeTab = 'all'
         this.allFilters.status = q.status
@@ -501,6 +568,10 @@ export default {
         this.allFilters.personId = q.personId
         this.appliedAll = { ...this.allFilters, date: this.allFilters.date ? fmtDate(this.allFilters.date) : '' }
       }
+      if (q.id) {
+        const report = this.$store.db.dailyReports.find(r => r.id === q.id)
+        if (report) this.openReport(report, 'view')
+      }
     },
     backToToday () {
       this.mineDate = moment()
@@ -510,13 +581,15 @@ export default {
       this.allPagination = { ...this.allPagination, current: 1 }
     },
     resetAllFilter () {
-      this.allFilters = { date: moment(), projectId: undefined, personId: undefined, deptId: undefined, status: undefined }
+      this.allFilters = emptyAllFilters()
       this.applyAllFilter()
     },
     openReport (report, mode) {
-      this.reportCurrent = report
+      this.reportCurrent = this.$store.db.dailyReports.find(r => r.id === report.id)
+      if (mode === 'admin' && (report.legacy || report.status !== '已提交')) return this.$message.warning('仅已提交的诉求日报可管理员修订')
+      if (mode === 'mine' && !this.canFillReport(report)) mode = 'view'
       this.reportMode = mode
-      report.frozen = isFrozen(report.date)
+      this.reportCurrent.frozen = isFrozen(report.date)
       this.reportForm = {
         attend: report.attend,
         absentReason: report.absentReason || '',
@@ -527,7 +600,7 @@ export default {
       this.reportDrawerVisible = true
     },
     openCard (report) {
-      if (report.frozen) return this.openReport(report, 'view')
+      if (!this.canFillReport(report)) return this.openReport(report, 'view')
       return this.openReport(report, 'mine')
     },
     validateReport () {
@@ -553,6 +626,7 @@ export default {
       this.$message.success('日报已提交，关联诉求已同步更新')
     },
     saveAdminRevision () {
+      if (!this.validateReport()) return
       if (!this.adminReason.trim()) return this.$message.warning('请填写修订原因')
       const res = this.$store.reviseReport(this.reportCurrent.id, this.reportForm, this.adminReason)
       if (!res.ok) return this.$message.error(res.message)

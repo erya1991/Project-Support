@@ -29,6 +29,14 @@ npm run build
 npm run preview
 ```
 
+V1.4 交互回归检查（使用隔离的进程内数据，不修改浏览器演示数据）：
+
+```bash
+node scripts/check-interactions.cjs
+```
+
+本轮检查结果与人工验收步骤见 [V1.4 交互检查与修复报告](docs/V1.4-interaction-audit.md)。
+
 ## 数据说明
 
 - 业务数据集中维护在 `src/data/seed.js`，首次启动自动初始化。

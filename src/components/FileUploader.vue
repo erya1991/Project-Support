@@ -34,9 +34,11 @@ export default {
     tip: { type: String, default: '' }
   },
   methods: {
-    beforeUpload (file) {
+    beforeUpload (file, files) {
+      // 同一批文件只合并一次，避免多次 input 使用尚未更新的 value 丢失前面的附件。
+      if (file !== files[0]) return false
       const list = (this.value || []).slice()
-      list.push({ name: file.name, size: file.size })
+      list.push(...files.map(item => ({ name: item.name, size: item.size })))
       this.$emit('input', list)
       this.$emit('change', list)
       return false

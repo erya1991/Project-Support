@@ -23,6 +23,16 @@
           </a-select>
         </a-form-item>
         <template v-if="expanded">
+          <a-form-item label="诉求来源">
+            <a-select v-model="filters.source" placeholder="全部来源" allow-clear style="width: 140px">
+              <a-select-option v-for="s in sourceOptions" :key="s" :value="s">{{ s }}</a-select-option>
+            </a-select>
+          </a-form-item>
+          <a-form-item label="协同部门">
+            <a-select v-model="filters.coDeptId" placeholder="全部协同部门" allow-clear show-search option-filter-prop="children" style="width: 180px">
+              <a-select-option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</a-select-option>
+            </a-select>
+          </a-form-item>
           <a-form-item label="完成时限">
             <a-range-picker v-model="filters.dueRange" style="width: 240px" />
           </a-form-item>
@@ -33,7 +43,7 @@
             </a-select>
           </a-form-item>
           <a-form-item label="关键词">
-            <a-input v-model="filters.keyword" placeholder="诉求编号 / 事项 / 描述" allow-clear style="width: 220px" />
+            <a-input v-model="filters.keyword" placeholder="编号 / 事项 / 描述 / 推进计划 / 最新进展" allow-clear style="width: 300px" @pressEnter="query" />
           </a-form-item>
         </template>
         <a-form-item>
@@ -57,6 +67,7 @@
       :columns="columns"
       :data-source="filteredAppeals"
       :pagination="pagination"
+      @change="onTableChange"
       row-key="id"
       size="middle"
       :scroll="{ x: 1280 }"
@@ -341,6 +352,7 @@
 
 <script>
 import moment from 'moment'
+import { matchesKeyword } from '../utils/listQuery'
 import StatusTag from '../components/StatusTag.vue'
 import ApprovalModal from '../components/ApprovalModal.vue'
 import FileUploader from '../components/FileUploader.vue'
@@ -358,6 +370,8 @@ export default {
         personId: undefined,
         status: undefined,
         dueRange: null,
+        source: undefined,
+        coDeptId: undefined,
         overdue: undefined,
         keyword: ''
       },
@@ -367,10 +381,12 @@ export default {
         personId: undefined,
         status: undefined,
         dueRange: null,
+        source: undefined,
+        coDeptId: undefined,
         overdue: undefined,
         keyword: ''
       },
-      pagination: { pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
+      pagination: { current: 1, pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
       statusOptions: ['办理中', '销项审批中', '已销项', '已删除'],
       sourceOptions: ['工程部梳理', '项目反馈', '日报', '现场', '其他'],
       formVisible: false,
@@ -437,6 +453,8 @@ export default {
       if (f.projectId) rows = rows.filter(a => a.projectId === f.projectId)
       if (f.deptId) rows = rows.filter(a => a.deptId === f.deptId)
       if (f.personId) rows = rows.filter(a => a.personId === f.personId)
+      if (f.source) rows = rows.filter(a => a.source === f.source)
+      if (f.coDeptId) rows = rows.filter(a => (a.coDepts || []).includes(f.coDeptId))
       if (f.dueRange && f.dueRange.length === 2) {
         const start = fmtDate(f.dueRange[0])
         const end = fmtDate(f.dueRange[1])
@@ -445,8 +463,7 @@ export default {
       if (f.overdue === '是') rows = rows.filter(a => a.dueDate < today && a.status !== '已销项')
       if (f.overdue === '否') rows = rows.filter(a => !(a.dueDate < today && a.status !== '已销项'))
       if (f.keyword) {
-        const kw = f.keyword.trim()
-        rows = rows.filter(a => `${a.id}${a.title}${a.desc}${a.personName}${a.projectName}`.indexOf(kw) > -1)
+        rows = rows.filter(a => matchesKeyword(f.keyword, [a.id, a.title, a.desc, a.personName, a.projectName, a.plan, a.latestProgress]))
       }
       return rows
     },
@@ -498,12 +515,13 @@ export default {
     }
   },
   methods: {
+    onTableChange ({ current, pageSize }) {
+      Object.assign(this.pagination, { current, pageSize })
+    },
     applyQuery () {
       const q = this.$route.query
-      if (q.status) {
-        this.filters.status = q.status
-        this.applied.status = q.status
-      }
+      this.filters.status = q.status || undefined
+      this.query()
       if (q.id) {
         const appeal = this.$store.db.appeals.find(a => a.id === q.id)
         if (appeal) this.openDetail(appeal)
@@ -517,6 +535,7 @@ export default {
       return checkOverdue(record.dueDate, record.status)
     },
     openReportView (record) {
+      this.detailVisible = false
       this.reportViewRecord = record
       this.reportViewVisible = true
     },
@@ -531,10 +550,12 @@ export default {
         personId: undefined,
         status: undefined,
         dueRange: null,
+        source: undefined,
+        coDeptId: undefined,
         overdue: undefined,
         keyword: ''
       }
-      this.applied = { ...this.filters }
+      this.query()
     },
     openCreate () {
       this.formMode = 'create'
@@ -555,6 +576,7 @@ export default {
       this.formVisible = true
     },
     openEdit (record) {
+      this.detailVisible = false
       this.formMode = 'edit'
       this.editingId = record.id
       this.editingDueDate = record.dueDate
@@ -629,6 +651,7 @@ export default {
       this.query()
     },
     openClose (record) {
+      this.detailVisible = false
       this.closeRecord = record
       this.closeReason = ''
       this.closeAttachments = []
@@ -669,6 +692,7 @@ export default {
       this.detailVisible = true
     },
     openApproval (record) {
+      this.detailVisible = false
       this.approvalRecord = record
       this.approvalVisible = true
     },

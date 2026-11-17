@@ -544,6 +544,7 @@ const store = {
     let sheet
     if (id) {
       sheet = this.db.sheets.find(s => s.id === id)
+      if (!sheet || !['草稿', '已退回'].includes(sheet.status)) return { ok: false, message: '仅草稿或已退回梳理单可编辑' }
       Object.assign(sheet, { deptId, system, deptName: this.getDept(deptId).name, remark })
       sheet.items = items.map((item, index) => ({
         id: item.id || `SLI${sheet.id.slice(-3)}${index + 1}`,
@@ -590,6 +591,7 @@ const store = {
       this.db.works = this.db.works.filter(w => removed.indexOf(w) === -1)
     }
 
+    if (this.db.works.some(w => w.sheetId === sheet.id && w.status === '待生效')) this.upsertSheetWorks(sheet)
     if (submit) {
       sheet.status = '审核中'
       sheet.approvals = [
@@ -636,6 +638,20 @@ const store = {
         })
       }
     })
+  },
+
+  canDeleteSheet (sheet) {
+    return !!sheet && ['草稿', '已退回'].includes(sheet.status) &&
+      !this.db.works.some(w => w.sheetId === sheet.id && w.status !== '待生效')
+  },
+
+  deleteSheet (id) {
+    const sheet = this.db.sheets.find(s => s.id === id)
+    if (!this.canDeleteSheet(sheet)) return { ok: false, message: '仅可删除草稿、已退回且无已生效事项的梳理单' }
+    this.db.works = this.db.works.filter(w => !(w.sheetId === id && w.status === '待生效'))
+    this.db.sheets = this.db.sheets.filter(s => s.id !== id)
+    this.persist()
+    return { ok: true }
   },
 
   submitSheetById (id) {
@@ -873,6 +889,11 @@ const store = {
       const relation = this.db.relations.find(r => this.isRelationEffective(r) && r.personId === appeal.personId && r.projectId === appeal.projectId)
       if (relation) this.createDailyTask(appeal, relation, todayStr())
     }
+    this.db.dailyReports.filter(r => r.appealId === appeal.id && r.status !== '已提交').forEach(report => {
+      report.appealTitle = appeal.title
+      report.appealDesc = appeal.desc
+      report.projectNeeds = this.appealNeedsSnapshot(appeal)
+    })
     if (dueChanged) {
       appeal.latestProgress = `完成时限调整至 ${payload.dueDate}：${payload.extendReason}`
     }
@@ -980,6 +1001,11 @@ const store = {
     const report = this.db.dailyReports.find(r => r.id === reportId)
     if (!report) return { ok: false, message: '未找到日报' }
     if (report.legacy) return { ok: false, message: '历史日报只读' }
+    if (report.date > todayStr()) return { ok: false, message: '尚未到填报日期' }
+    const sourceAppeal = this.db.appeals.find(a => a.id === report.appealId)
+    if (sourceAppeal && sourceAppeal.status === '已删除') return { ok: false, message: '已删除诉求的历史日报只读' }
+    const validation = this.validateReportContent(payload)
+    if (validation) return { ok: false, message: validation }
     if (isFrozen(report.date)) {
       return { ok: false, message: '该日报已冻结，个人不可修改' }
     }
@@ -993,7 +1019,7 @@ const store = {
       submitTime: nowStr()
     })
     const appeal = this.db.appeals.find(a => a.id === report.appealId)
-    if (appeal) {
+    if (appeal && (!appeal.latestReportDate || report.date >= appeal.latestReportDate)) {
       appeal.latestProgress = report.workContent || report.newIssues || '已提交诉求日报。'
       appeal.latestReportDate = report.date
       appeal.latestReportId = report.id
@@ -1005,7 +1031,10 @@ const store = {
   reviseReport (reportId, payload, reason) {
     const report = this.db.dailyReports.find(r => r.id === reportId)
     if (!report) return { ok: false, message: '未找到日报' }
-    if (!reason) return { ok: false, message: '请填写修订原因' }
+    if (report.legacy || report.status !== '已提交') return { ok: false, message: '仅已提交的诉求日报可管理员修订' }
+    if (!reason || !reason.trim()) return { ok: false, message: '请填写修订原因' }
+    const validation = this.validateReportContent(payload)
+    if (validation) return { ok: false, message: validation }
     const before = {
       attend: report.attend,
       absentReason: report.absentReason,
@@ -1034,7 +1063,7 @@ const store = {
       }
     })
     const appeal = this.db.appeals.find(a => a.id === report.appealId)
-    if (appeal) {
+    if (appeal && (!appeal.latestReportDate || report.date >= appeal.latestReportDate)) {
       appeal.latestProgress = report.workContent || report.newIssues || '已提交诉求日报。'
       appeal.latestReportDate = report.date
       appeal.latestReportId = report.id
@@ -1043,33 +1072,79 @@ const store = {
     return { ok: true }
   },
 
+  validateReportContent (payload) {
+    if (typeof payload.attend !== 'boolean') return '请选择是否到岗'
+    if (!payload.attend && !(payload.absentReason || '').trim()) return '请填写未到岗原因'
+    if (payload.attend && !(payload.workContent || '').trim()) return '请填写当日工作开展情况'
+    return ''
+  },
+
   /* ---------------- 制度建议 ---------------- */
-  createSuggestion (payload) {
-    const proposer = this.currentUser
-    const dept = this.getDept(payload.deptId)
-    const confirmers = payload.confirmerIds.map(id => {
+  canEditSuggestion (suggestion) {
+    if (!suggestion) return false
+    if (suggestion.status === '已退回') return true
+    return suggestion.status === '待确认' &&
+      !(suggestion.confirmers || []).some(c => c.reply || c.status !== '待确认') &&
+      !(suggestion.nodes || []).some(n => n.result !== '待处理')
+  },
+
+  updateSuggestion (id, payload) {
+    const suggestion = this.db.suggestions.find(s => s.id === id)
+    if (!this.canEditSuggestion(suggestion)) return { ok: false, message: '当前状态不允许编辑建议' }
+    if (!this.getDept(payload.deptId) || !payload.confirmerIds.length ||
+      payload.confirmerIds.some(personId => !this.staffOfDept(payload.deptId).some(p => p.id === personId))) {
+      return { ok: false, message: '请选择主责部门及其确认负责人' }
+    }
+    // 退回重提保留上一轮原文及确认意见，当前轮次仍沿用原有确认、归档流程。
+    if (suggestion.status === '已退回') {
+      if (!suggestion.history) Vue.set(suggestion, 'history', [])
+      suggestion.history.push({ time: nowStr(), action: '修改并重新提交', before: clone({
+        title: suggestion.title, flow: suggestion.flow, desc: suggestion.desc,
+        deptId: suggestion.deptId, confirmers: suggestion.confirmers, nodes: suggestion.nodes,
+        attachments: suggestion.attachments
+      }) })
+    }
+    Object.assign(suggestion, {
+      title: payload.title, flow: payload.flow, desc: payload.desc,
+      deptId: payload.deptId, deptName: this.getDept(payload.deptId).name,
+      confirmerIds: payload.confirmerIds.slice(), attachments: payload.attachments || [],
+      ...this.suggestionFlow(payload.confirmerIds), reply: null, status: '待确认'
+    })
+    this.persist()
+    return { ok: true }
+  },
+
+  deleteSuggestion (id) {
+    const suggestion = this.db.suggestions.find(s => s.id === id)
+    if (!this.canDeleteSuggestion(suggestion)) return { ok: false, message: '仅尚未发生确认操作的建议可删除' }
+    this.db.suggestions = this.db.suggestions.filter(s => s.id !== id)
+    this.persist()
+    return { ok: true }
+  },
+
+  canDeleteSuggestion (suggestion) {
+    return !!suggestion && suggestion.status === '待确认' && this.canEditSuggestion(suggestion) &&
+      !(suggestion.history || []).some(h => h.before && (h.before.nodes || []).some(n => n.result === '通过' || n.result === '退回'))
+  },
+
+  suggestionFlow (confirmerIds) {
+    const confirmers = confirmerIds.map(id => {
       const p = this.getPerson(id)
       return { id, name: p.name, title: p.title, status: '待确认', reply: null }
     })
     const nodes = confirmers.map(c => ({
-      key: `confirm_${c.id}`,
-      type: 'confirmer',
-      confirmerId: c.id,
-      name: `部门负责人确认（${c.name}）`,
-      approver: c.name,
-      result: '待处理',
-      time: '',
-      comment: ''
+      key: `confirm_${c.id}`, type: 'confirmer', confirmerId: c.id,
+      name: `部门负责人确认（${c.name}）`, approver: c.name,
+      result: '待处理', time: '', comment: ''
     }))
-    nodes.push({
-      key: 'archive',
-      type: 'archive',
-      name: '企划部归档',
-      approver: ARCHIVER.name,
-      result: '待处理',
-      time: '',
-      comment: ''
-    })
+    nodes.push({ key: 'archive', type: 'archive', name: '企划部归档', approver: ARCHIVER.name, result: '待处理', time: '', comment: '' })
+    return { confirmers, nodes }
+  },
+
+  createSuggestion (payload) {
+    const proposer = this.currentUser
+    const dept = this.getDept(payload.deptId)
+    const { confirmers, nodes } = this.suggestionFlow(payload.confirmerIds)
     const suggestion = {
       id: nextCode(this.db.suggestions, 'JY2026', 3),
       title: payload.title,
@@ -1100,7 +1175,7 @@ const store = {
   approveSuggestionNode (id, action, payload = {}) {
     const suggestion = this.db.suggestions.find(s => s.id === id)
     if (!suggestion) return { ok: false, message: '未找到制度建议' }
-    if (suggestion.status === '已归档') return { ok: false, message: '该建议已归档' }
+    if (!['待确认', '已回复'].includes(suggestion.status)) return { ok: false, message: '该建议当前不可办理确认或归档' }
     const idx = findFirstPending(suggestion.nodes)
     if (idx < 0) return { ok: false, message: '没有待处理流程节点' }
     const node = suggestion.nodes[idx]

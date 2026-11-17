@@ -22,12 +22,22 @@
                 </a-select>
               </a-form-item>
               <a-form-item label="关键词">
-                <a-input v-model="sheetFilters.keyword" placeholder="梳理单编号 / 部门" allow-clear style="width: 190px" />
+                <a-input v-model="sheetFilters.keyword" placeholder="梳理单编号 / 部门 / 创建说明" allow-clear style="width: 240px" @pressEnter="applySheetFilter" />
               </a-form-item>
+              <template v-if="sheetExpanded">
+                <a-form-item label="填报人">
+                  <a-select v-model="sheetFilters.creatorId" placeholder="全部填报人" allow-clear style="width: 140px">
+                    <a-select-option v-for="p in sheetCreators" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
+                  </a-select>
+                </a-form-item>
+                <a-form-item label="填报日期"><a-range-picker v-model="sheetFilters.dateRange" style="width: 230px" /></a-form-item>
+                <a-form-item label="重点工作数量"><a-input-number v-model="sheetFilters.itemCount" :min="0" :precision="0" placeholder="全部数量" style="width: 120px" /></a-form-item>
+              </template>
               <a-form-item>
                 <div class="filter-actions">
                   <a-button type="primary" @click="applySheetFilter"><a-icon type="search" /> 查询</a-button>
                   <a-button @click="resetSheetFilter"><a-icon type="reload" /> 重置</a-button>
+                  <span class="filter-toggle" @click="sheetExpanded = !sheetExpanded">{{ sheetExpanded ? '收起' : '展开' }} <a-icon :type="sheetExpanded ? 'up' : 'down'" /></span>
                 </div>
               </a-form-item>
             </a-form>
@@ -42,6 +52,7 @@
             :columns="sheetColumns"
             :data-source="filteredSheets"
             :pagination="sheetPagination"
+            @change="onSheetTableChange"
             row-key="id"
             size="middle"
             :scroll="{ x: 1250 }"
@@ -55,6 +66,8 @@
                 <a-divider type="vertical" />
                 <a class="link-btn" @click="submitSheet(record)">提交审批</a>
                 <a-divider type="vertical" />
+                <a v-if="$store.canDeleteSheet(record)" class="link-btn danger" @click="deleteSheet(record)">删除</a>
+                <a-divider v-if="$store.canDeleteSheet(record)" type="vertical" />
               </template>
               <template v-else-if="record.status === '审核中'">
                 <a class="link-btn" @click="openSheetApproval(record)">审批</a>
@@ -91,12 +104,31 @@
                 </a-select>
               </a-form-item>
               <a-form-item label="关键词">
-                <a-input v-model="workFilters.keyword" placeholder="事项编号 / 工作内容 / 牵头人" allow-clear style="width: 220px" />
+                <a-input v-model="workFilters.keyword" placeholder="编号 / 工作 / 问题 / 建议 / 落实情况" allow-clear style="width: 280px" @pressEnter="applyWorkFilter" />
               </a-form-item>
+              <template v-if="workExpanded">
+                <a-form-item label="牵头人">
+                  <a-select v-model="workFilters.leadId" placeholder="全部牵头人" allow-clear show-search option-filter-prop="children" style="width: 150px">
+                    <a-select-option v-for="p in allStaff" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
+                  </a-select>
+                </a-form-item>
+                <a-form-item label="完成时限"><a-range-picker v-model="workFilters.dueRange" style="width: 230px" /></a-form-item>
+                <a-form-item label="项目落实进展">
+                  <a-select v-model="workFilters.progress" placeholder="全部进展" allow-clear style="width: 160px">
+                    <a-select-option v-for="s in ['未配置项目', '未填写', '部分填写', '全部填写']" :key="s" :value="s">{{ s }}</a-select-option>
+                  </a-select>
+                </a-form-item>
+                <a-form-item label="梳理单">
+                  <a-select v-model="workFilters.sheetId" placeholder="全部梳理单" allow-clear show-search option-filter-prop="children" style="width: 170px">
+                    <a-select-option v-for="s in $store.db.sheets" :key="s.id" :value="s.id">{{ s.id }}</a-select-option>
+                  </a-select>
+                </a-form-item>
+              </template>
               <a-form-item>
                 <div class="filter-actions">
                   <a-button type="primary" @click="applyWorkFilter"><a-icon type="search" /> 查询</a-button>
                   <a-button @click="resetWorkFilter"><a-icon type="reload" /> 重置</a-button>
+                  <span class="filter-toggle" @click="workExpanded = !workExpanded">{{ workExpanded ? '收起' : '展开' }} <a-icon :type="workExpanded ? 'up' : 'down'" /></span>
                 </div>
               </a-form-item>
             </a-form>
@@ -106,6 +138,7 @@
             :columns="workColumns"
             :data-source="filteredWorks"
             :pagination="workPagination"
+            @change="onWorkTableChange"
             row-key="id"
             size="middle"
             :scroll="{ x: 1250 }"
@@ -265,8 +298,8 @@
             row-key="id"
             :scroll="{ x: 1050 }"
           >
-            <div slot="statusCol">
-              <status-tag :status="sheetCurrent.status === '已生效' ? '落实中' : (sheetCurrent.status === '已退回' ? '已退回' : '待生效')" />
+            <div slot="statusCol" slot-scope="text, record">
+              <status-tag :status="sheetItemStatus(record)" />
             </div>
           </a-table>
         </div>
@@ -507,6 +540,10 @@ import StatusTag from '../components/StatusTag.vue'
 import ApprovalModal from '../components/ApprovalModal.vue'
 import FileUploader from '../components/FileUploader.vue'
 import { todayStr, fmtDate } from '../utils/date'
+import { matchesKeyword, inDateRange } from '../utils/listQuery'
+
+const emptySheetFilters = () => ({ system: undefined, deptId: undefined, status: undefined, keyword: '', creatorId: undefined, dateRange: null, itemCount: undefined })
+const emptyWorkFilters = () => ({ system: undefined, deptId: undefined, status: undefined, keyword: '', leadId: undefined, dueRange: null, progress: undefined, sheetId: undefined })
 
 function newSheetItem (deptId) {
   return {
@@ -528,18 +565,20 @@ export default {
       activeTab: 'sheets',
       today: todayStr(),
       systems: [],
-      sheetFilters: { system: undefined, deptId: undefined, status: undefined, keyword: '' },
-      appliedSheet: { system: undefined, deptId: undefined, status: undefined, keyword: '' },
-      workFilters: { system: undefined, deptId: undefined, status: undefined, keyword: '' },
-      appliedWork: { system: undefined, deptId: undefined, status: undefined, keyword: '' },
+      sheetExpanded: false,
+      workExpanded: false,
+      sheetFilters: emptySheetFilters(),
+      appliedSheet: emptySheetFilters(),
+      workFilters: emptyWorkFilters(),
+      appliedWork: emptyWorkFilters(),
       sheetStatusOptions: ['草稿', '审核中', '已生效', '已退回'],
       workStatusOptions: ['待生效', '落实中', '销项审批中', '已销项'],
-      sheetPagination: { pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
-      workPagination: { pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
+      sheetPagination: { current: 1, pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
+      workPagination: { current: 1, pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
 
       sheetFormVisible: false,
       sheetFormMode: 'create',
-      sheetForm: { id: null, deptId: undefined, system: '', remark: '', items: [] },
+      sheetForm: { id: null, deptId: undefined, system: undefined, remark: '', items: [] },
       sheetItemColumns: [],
       sheetDetailVisible: false,
       sheetCurrent: null,
@@ -559,6 +598,12 @@ export default {
     }
   },
   computed: {
+    allStaff () {
+      return this.$store.allStaff()
+    },
+    sheetCreators () {
+      return [...new Map(this.$store.db.sheets.map(s => [s.creatorId, { id: s.creatorId, name: s.creatorName }])).values()]
+    },
     departments () {
       return this.$store.db.departments
     },
@@ -576,10 +621,10 @@ export default {
         if (f.system && s.system !== f.system) return false
         if (f.deptId && s.deptId !== f.deptId) return false
         if (f.status && s.status !== f.status) return false
-        if (f.keyword) {
-          const kw = f.keyword.trim()
-          if (`${s.id}${s.deptName}${s.creatorName}`.indexOf(kw) === -1) return false
-        }
+        if (f.creatorId && s.creatorId !== f.creatorId) return false
+        if (!inDateRange(s.createDate, f.dateRange)) return false
+        if (typeof f.itemCount === 'number' && s.items.length !== f.itemCount) return false
+        if (!matchesKeyword(f.keyword, [s.id, s.deptName, s.creatorName, s.remark])) return false
         return true
       })
     },
@@ -602,10 +647,14 @@ export default {
         if (f.system && w.system !== f.system) return false
         if (f.deptId && w.deptId !== f.deptId) return false
         if (f.status && w.status !== f.status) return false
-        if (f.keyword) {
-          const kw = f.keyword.trim()
-          if (`${w.id}${w.title}${w.leadName}${w.deptName}`.indexOf(kw) === -1) return false
-        }
+        if (f.sheetId && w.sheetId !== f.sheetId) return false
+        if (f.leadId && w.leadId !== f.leadId) return false
+        if (!inDateRange(w.dueDate, f.dueRange)) return false
+        const p = this.workProgress(w)
+        const progress = !p.B ? '未配置项目' : (p.A === p.B ? '全部填写' : (p.A ? '部分填写' : '未填写'))
+        if (f.progress && f.progress !== progress) return false
+        if (!matchesKeyword(f.keyword, [w.id, w.title, w.leadName, w.deptName, w.problem, w.suggestion, w.overallContent,
+          ...(w.projectExecutions || []).map(e => e.content)])) return false
         return true
       })
     },
@@ -709,6 +758,25 @@ export default {
     }
   },
   methods: {
+    onSheetTableChange ({ current, pageSize }) {
+      Object.assign(this.sheetPagination, { current, pageSize })
+    },
+    onWorkTableChange ({ current, pageSize }) {
+      Object.assign(this.workPagination, { current, pageSize })
+    },
+    deleteSheet (sheet) {
+      this.$confirm({
+        title: '删除部门重点工作梳理单', content: `确认删除 ${sheet.id} 及其尚未生效的事项？`, okText: '删除', okType: 'danger', cancelText: '取消',
+        onOk: () => {
+          const res = this.$store.deleteSheet(sheet.id)
+          if (!res.ok) return this.$message.error(res.message)
+          this.sheetDetailVisible = false
+          this.applySheetFilter()
+          this.applyWorkFilter()
+          this.$message.success('梳理单及未生效事项已删除')
+        }
+      })
+    },
     watchQuery () {
       const tab = this.$route.query.tab
       if (tab === 'works' || tab === 'sheets') this.activeTab = tab
@@ -720,9 +788,24 @@ export default {
         this.workFilters.status = this.$route.query.status
         this.applyWorkFilter()
       }
+      if (this.$route.query.sheetId) {
+        this.workFilters.sheetId = this.$route.query.sheetId
+        this.workExpanded = true
+        this.applyWorkFilter()
+      }
+      if (this.$route.query.id) {
+        const work = this.$store.workById(this.$route.query.id)
+        const sheet = this.$store.db.sheets.find(s => s.id === this.$route.query.id)
+        if (work) { this.activeTab = 'works'; this.openWorkDetail(work) }
+        if (sheet) { this.activeTab = 'sheets'; this.openSheetDetail(sheet) }
+      }
     },
     workProgress (work) {
       return work ? this.$store.getWorkProgress(work) : { A: 0, B: 0, missing: [] }
+    },
+    sheetItemStatus (item) {
+      const work = this.$store.db.works.find(w => w.sheetId === this.sheetCurrent.id && w.seq === item.seq)
+      return work ? work.status : '待生效'
     },
     workProgressText (work) {
       const p = this.workProgress(work)
@@ -754,7 +837,7 @@ export default {
       this.sheetPagination = { ...this.sheetPagination, current: 1 }
     },
     resetSheetFilter () {
-      this.sheetFilters = { system: undefined, deptId: undefined, status: undefined, keyword: '' }
+      this.sheetFilters = emptySheetFilters()
       this.applySheetFilter()
     },
     applyWorkFilter () {
@@ -762,7 +845,7 @@ export default {
       this.workPagination = { ...this.workPagination, current: 1 }
     },
     resetWorkFilter () {
-      this.workFilters = { system: undefined, deptId: undefined, status: undefined, keyword: '' }
+      this.workFilters = emptyWorkFilters()
       this.applyWorkFilter()
     },
     onSystemChange () {
@@ -782,7 +865,7 @@ export default {
     },
     openSheetCreate () {
       this.sheetFormMode = 'create'
-      let system = this.appliedSheet.system || ''
+      let system = this.appliedSheet.system || undefined
       let deptId = this.appliedSheet.deptId || undefined
       if (deptId) {
         const dept = this.$store.getDept(deptId)
@@ -801,6 +884,7 @@ export default {
       this.sheetFormVisible = true
     },
     openSheetEdit (sheet) {
+      this.sheetDetailVisible = false
       this.sheetFormMode = 'edit'
       this.sheetForm = {
         id: sheet.id,
@@ -862,6 +946,7 @@ export default {
           suggestion: item.suggestion
         }))
       }, submit)
+      if (sheet.ok === false) return this.$message.error(sheet.message)
       this.sheetFormVisible = false
       this.$message.success(submit ? `梳理单 ${sheet.id} 已提交创建审批` : '梳理单草稿已保存')
       this.applySheetFilter()
@@ -885,6 +970,7 @@ export default {
       this.sheetDetailVisible = true
     },
     openSheetApproval (sheet) {
+      this.sheetDetailVisible = false
       this.sheetApprovalRecord = sheet
       this.sheetApprovalVisible = true
     },
@@ -898,8 +984,10 @@ export default {
       this.sheetDetailVisible = false
     },
     viewSheetWorks (sheet) {
+      this.sheetDetailVisible = false
       this.activeTab = 'works'
-      this.workFilters = { system: sheet.system, deptId: sheet.deptId, status: undefined, keyword: '' }
+      this.workExpanded = true
+      this.workFilters = { ...emptyWorkFilters(), sheetId: sheet.id }
       this.applyWorkFilter()
     },
     openWorkDetail (work) {
@@ -939,6 +1027,7 @@ export default {
     },
     openCloseApproval (work) {
       if (!work.closeRequest) return
+      this.workDrawerVisible = false
       this.workApprovalRecord = work
       this.workApprovalVisible = true
     },

@@ -282,7 +282,7 @@ export default {
       if (t.approvalCount) {
         list.push({
           title: `当前有 ${t.approvalCount} 项审批事项待处理`,
-          desc: '包括帮扶关系联合审批、重点工作创建/销项审批、诉求销项及制度建议确认。',
+          desc: '包括重点工作创建/销项审批、诉求销项及制度建议确认。',
           path: '/overview',
           time: '待处理'
         })
@@ -318,16 +318,16 @@ export default {
       const t = this.todoData
       const today = todayStr()
       const dailyItems = this.$store.db.dailyReports
-        .filter(r => r.date === today && r.personId === this.user.id && r.status !== '已提交')
+        .filter(r => !r.legacy && r.date === today && r.personId === this.user.id && r.status !== '已提交')
         .map(r => ({ title: `${r.projectName} · ${r.appealTitle}`, desc: `${r.date} · ${r.status}`, path: '/daily' }))
       const appealItems = this.$store.db.appeals
         .filter(a => a.personId === this.user.id && a.status === '办理中')
         .map(a => ({ title: a.title, desc: `${a.projectName} · 完成时限 ${a.dueDate}`, path: '/appeals' }))
       const approvalItems = []
-      t.sheets.forEach(s => approvalItems.push({ title: `重点工作梳理单创建审批 ${s.id}`, desc: `${s.deptName} · 待企划部审核`, path: '/works' }))
-      t.workCloses.forEach(w => approvalItems.push({ title: `重点工作销项审批 ${w.closeRequest.id}`, desc: w.title, path: '/works' }))
-      t.appealCloses.forEach(a => approvalItems.push({ title: `诉求销项审批 ${a.closeRequest.id}`, desc: `${a.projectName} · ${a.title}`, path: '/appeals' }))
-      t.suggestions.forEach(s => approvalItems.push({ title: `制度改进建议流程待办 ${s.id}`, desc: s.title, path: '/suggestions' }))
+      t.sheets.forEach(s => approvalItems.push({ title: `重点工作梳理单创建审批 ${s.id}`, desc: `${s.deptName} · ${(s.approvals.find(n => n.result === '待处理') || {}).name || '待审核'}`, path: `/works?tab=sheets&id=${s.id}` }))
+      t.workCloses.forEach(w => approvalItems.push({ title: `重点工作销项审批 ${w.closeRequest.id}`, desc: w.title, path: `/works?tab=works&id=${w.id}` }))
+      t.appealCloses.forEach(a => approvalItems.push({ title: `诉求销项审批 ${a.closeRequest.id}`, desc: `${a.projectName} · ${a.title}`, path: `/appeals?id=${a.id}` }))
+      t.suggestions.forEach(s => approvalItems.push({ title: `制度改进建议流程待办 ${s.id}`, desc: s.title, path: `/suggestions?id=${s.id}` }))
       return [
         { key: 'daily', title: '待填日报', color: 'blue', items: dailyItems },
         { key: 'appeal', title: '待推进诉求', color: 'orange', items: appealItems },
@@ -350,7 +350,7 @@ export default {
   },
   methods: {
     go (path) {
-      if (this.$route.path !== path) this.$router.push(path)
+      if (this.$route.fullPath !== this.$router.resolve(path).route.fullPath) this.$router.push(path)
     },
     goAndClose (path) {
       this.showNotice = false
