@@ -35,6 +35,7 @@ const store = {
         const parsed = JSON.parse(raw)
         if (parsed && parsed.people && parsed.works && parsed.dailyReports) {
           state.db = migrateDb(parsed)
+          this.syncV14Data()
           this.refreshDailyWindow()
           this.syncAllWorkProjectScopes()
           this.persist()
@@ -45,6 +46,7 @@ const store = {
       // 本地数据不可用时重新初始化
     }
     state.db = migrateDb(buildSeed())
+    this.syncV14Data()
     this.refreshDailyWindow()
     this.syncAllWorkProjectScopes()
     this.persist()
@@ -94,6 +96,34 @@ const store = {
     return this.db.people.concat(this.db.managers)
   },
 
+  syncV14Data () {
+    // 同一存储键内兼容旧版已删除记录，已提交日报保留原文及关联编号。
+    this.db.appeals.filter(a => a.status === '已删除').forEach(a => this.removeAppealData(a.id))
+    this.syncRelationStatuses()
+  },
+
+  syncRelationStatuses () {
+    const today = todayStr()
+    this.db.relations.forEach(relation => {
+      if (relation.archived || relation.configStatus === '历史归档') {
+        if (!relation.legacyStatus) Vue.set(relation, 'legacyStatus', relation.status)
+        if (relation.configStatus === '历史归档') Vue.set(relation, 'legacyConfigStatus', '历史归档')
+        relation.archived = true
+        relation.configStatus = '停用'
+        relation.status = '停用'
+      } else if (relation.configStatus === '启用' && relation.endDate && relation.endDate < today) {
+        relation.configStatus = '停用'
+        relation.status = '停用'
+        relation.stopReason = `有效期已于 ${relation.endDate} 结束，系统自动停用。`
+        relation.stoppedAt = nowStr()
+        relation.stoppedBy = '系统'
+        relation.history.push({ time: relation.stoppedAt, action: '到期自动停用', operator: '系统', remark: relation.stopReason })
+      }
+    })
+    this.db.dailyReports = this.db.dailyReports.filter(report => report.status === '已提交' || report.legacy ||
+      report.date < today || this.db.relations.some(r => r.personId === report.personId && r.projectId === report.projectId && this.isRelationEffective(r, report.date)))
+  },
+
   effectiveRelations (date) {
     const day = date || todayStr()
     return this.db.relations.filter(r => this.isRelationEffective(r, day))
@@ -110,7 +140,7 @@ const store = {
 
   relationValidity (relation, date) {
     if (!relation) return ''
-    if (relation.archived || relation.configStatus === '历史归档') return '历史归档'
+    if (relation.archived || relation.configStatus === '历史归档') return '已停用'
     if (relation.configStatus !== '启用') return '已停用'
     const day = date || todayStr()
     if (relation.startDate && relation.startDate > day) return '未到生效日'
@@ -158,7 +188,7 @@ const store = {
 
   reportsForDate (date) {
     const deleted = new Set(this.db.appeals.filter(a => a.status === '已删除').map(a => a.id))
-    return this.db.dailyReports.filter(r => !r.legacy && r.date === date && !deleted.has(r.appealId))
+    return this.db.dailyReports.filter(r => !r.legacy && !r.appealDeleted && r.date === date && !deleted.has(r.appealId))
   },
 
   workById (id) {
@@ -297,6 +327,7 @@ const store = {
         created.push(relation)
       })
     })
+    this.syncRelationStatuses()
     this.syncAllWorkProjectScopes()
     this.persist()
     return { created, skipped }
@@ -346,6 +377,7 @@ const store = {
       remark: payload.remark || ''
     })
     relation.history.push({ time: nowStr(), action: '编辑关系', operator: PLANNER.name, remark: payload.remark || '编辑帮扶关系配置。' })
+    this.syncRelationStatuses()
     this.ensureRelationReportTask(relation)
     this.syncAllWorkProjectScopes()
     this.persist()
@@ -387,6 +419,7 @@ const store = {
     if (!relation) return { ok: false, message: '未找到帮扶关系' }
     if (relation.archived || relation.configStatus === '历史归档') return { ok: false, message: '历史归档关系不可重新启用' }
     if (relation.configStatus === '启用') return { ok: false, message: '该关系已启用' }
+    if (relation.endDate && relation.endDate < todayStr()) return { ok: false, message: '有效期已结束，请先调整结束日期再启用' }
     if (relation.endDate && relation.endDate < relation.startDate) return { ok: false, message: '结束日期不得早于开始日期' }
     const conflict = this.db.relations.find(r =>
       r.id !== relation.id && !r.archived && r.configStatus === '启用' &&
@@ -824,7 +857,7 @@ const store = {
   /* ---------------- 项目诉求 ---------------- */
   createAppeal (payload) {
     const appeal = {
-      id: nextCode(this.db.appeals, 'SQ2026', 4),
+      id: nextCode(this.db.appeals.concat(this.db.dailyReports.map(r => ({ id: r.appealId }))), 'SQ2026', 4),
       projectId: payload.projectId,
       projectName: this.getProject(payload.projectId).name,
       title: payload.title,
@@ -906,18 +939,21 @@ const store = {
     if (!appeal) return { ok: false, message: '未找到诉求' }
     if (appeal.creatorId !== this.currentUser.id) return { ok: false, message: '仅诉求发起人可删除' }
     if (appeal.status !== '办理中') return { ok: false, message: '仅办理中且未进入销项审批的诉求可删除' }
-    appeal.status = '已删除'
-    appeal.deletedAt = nowStr()
-    appeal.deletedBy = this.currentUser.name
-    this.db.dailyReports = this.db.dailyReports.filter(r => !(r.appealId === appeal.id && r.status !== '已提交'))
+    this.removeAppealData(id)
     this.persist()
     return { ok: true }
+  },
+
+  removeAppealData (id) {
+    this.db.dailyReports = this.db.dailyReports.filter(r => r.appealId !== id || r.status === '已提交')
+    this.db.dailyReports.filter(r => r.appealId === id).forEach(r => Vue.set(r, 'appealDeleted', true))
+    this.db.appeals = this.db.appeals.filter(a => a.id !== id)
   },
 
   submitAppealClose (id, payload) {
     const appeal = this.db.appeals.find(a => a.id === id)
     if (!appeal) return { ok: false }
-    if (appeal.status === '已删除') return { ok: false, message: '已删除诉求不可发起销项' }
+    if (appeal.status !== '办理中') return { ok: false, message: '仅办理中的诉求可申请销项' }
     if (appeal.closeRequest && appeal.closeRequest.status === '审批中') {
       return { ok: false, message: '该诉求已有进行中的销项申请' }
     }
@@ -1003,7 +1039,7 @@ const store = {
     if (report.legacy) return { ok: false, message: '历史日报只读' }
     if (report.date > todayStr()) return { ok: false, message: '尚未到填报日期' }
     const sourceAppeal = this.db.appeals.find(a => a.id === report.appealId)
-    if (sourceAppeal && sourceAppeal.status === '已删除') return { ok: false, message: '已删除诉求的历史日报只读' }
+    if (!sourceAppeal || sourceAppeal.status === '已删除') return { ok: false, message: '已删除诉求的历史日报只读' }
     const validation = this.validateReportContent(payload)
     if (validation) return { ok: false, message: validation }
     if (isFrozen(report.date)) {
@@ -1272,7 +1308,9 @@ const store = {
       closingCount: closing.length,
       activeCount: processing.length + closing.length,
       closeRate: appeals.length ? Math.round((closed.length / appeals.length) * 1000) / 10 : 0,
-      workTotal: this.db.works.length,
+      workTotal: this.db.works.filter(w => ['落实中', '销项审批中', '已销项'].includes(w.status)).length,
+      workProcessing: this.db.works.filter(w => w.status === '落实中').length,
+      workClosing: this.db.works.filter(w => w.status === '销项审批中').length,
       workClosed: this.db.works.filter(w => w.status === '已销项').length,
       relationCount: rels.length
     }
@@ -1312,7 +1350,7 @@ const store = {
     const elapsed = workDates.filter(d => d <= todayStr())
     const reports = this.db.dailyReports.filter(r => !r.legacy && r.date >= start && r.date <= end)
     const deletedIds = new Set(this.db.appeals.filter(a => a.status === '已删除').map(a => a.id))
-    const validReports = reports.filter(r => !deletedIds.has(r.appealId))
+    const validReports = reports.filter(r => !r.appealDeleted && !deletedIds.has(r.appealId))
     const submitted = validReports.filter(r => r.status === '已提交')
     const absentRows = submitted.filter(r => r.attend === false).sort((a, b) => a.personName.localeCompare(b.personName, 'zh') || a.date.localeCompare(b.date))
     const serviceRows = submitted.filter(r => r.attend === true).sort((a, b) => a.personName.localeCompare(b.personName, 'zh') || a.date.localeCompare(b.date))

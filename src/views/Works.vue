@@ -4,44 +4,7 @@
       <a-tab-pane key="sheets">
         <span slot="tab"><a-icon type="profile" /> 部门重点工作梳理单</span>
         <div class="tab-body">
-          <div class="filter-bar">
-            <a-form layout="inline">
-              <a-form-item label="所属体系">
-                <a-select v-model="sheetFilters.system" placeholder="全部体系" allow-clear style="width: 130px">
-                  <a-select-option v-for="s in systems" :key="s" :value="s">{{ s }}</a-select-option>
-                </a-select>
-              </a-form-item>
-              <a-form-item label="归属部门">
-                <a-select v-model="sheetFilters.deptId" placeholder="全部部门" allow-clear show-search option-filter-prop="children" style="width: 200px">
-                  <a-select-option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</a-select-option>
-                </a-select>
-              </a-form-item>
-              <a-form-item label="梳理单状态">
-                <a-select v-model="sheetFilters.status" placeholder="全部状态" allow-clear style="width: 130px">
-                  <a-select-option v-for="s in sheetStatusOptions" :key="s" :value="s">{{ s }}</a-select-option>
-                </a-select>
-              </a-form-item>
-              <a-form-item label="关键词">
-                <a-input v-model="sheetFilters.keyword" placeholder="梳理单编号 / 部门 / 创建说明" allow-clear style="width: 240px" @pressEnter="applySheetFilter" />
-              </a-form-item>
-              <template v-if="sheetExpanded">
-                <a-form-item label="填报人">
-                  <a-select v-model="sheetFilters.creatorId" placeholder="全部填报人" allow-clear style="width: 140px">
-                    <a-select-option v-for="p in sheetCreators" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
-                  </a-select>
-                </a-form-item>
-                <a-form-item label="填报日期"><a-range-picker v-model="sheetFilters.dateRange" style="width: 230px" /></a-form-item>
-                <a-form-item label="重点工作数量"><a-input-number v-model="sheetFilters.itemCount" :min="0" :precision="0" placeholder="全部数量" style="width: 120px" /></a-form-item>
-              </template>
-              <a-form-item>
-                <div class="filter-actions">
-                  <a-button type="primary" @click="applySheetFilter"><a-icon type="search" /> 查询</a-button>
-                  <a-button @click="resetSheetFilter"><a-icon type="reload" /> 重置</a-button>
-                  <span class="filter-toggle" @click="sheetExpanded = !sheetExpanded">{{ sheetExpanded ? '收起' : '展开' }} <a-icon :type="sheetExpanded ? 'up' : 'down'" /></span>
-                </div>
-              </a-form-item>
-            </a-form>
-          </div>
+          <list-query type="sheets" v-model="sheetFilters" @query="applySheetFilter" @reset="resetSheetFilter" />
 
           <div class="toolbar">
             <a-button type="primary" @click="openSheetCreate"><a-icon type="plus" /> 新建梳理单</a-button>
@@ -55,11 +18,8 @@
             @change="onSheetTableChange"
             row-key="id"
             size="middle"
-            :scroll="{ x: 1250 }"
+            :scroll="{ x: 1900 }"
           >
-            <div slot="remark" slot-scope="text" class="cell-ellipsis" :title="text">{{ text }}</div>
-            <div slot="itemCount" slot-scope="text">{{ text.length }}</div>
-            <div slot="status" slot-scope="text"><status-tag :status="text" /></div>
             <div slot="action" slot-scope="text, record" class="table-actions">
               <template v-if="record.status === '草稿' || record.status === '已退回'">
                 <a class="link-btn" @click="openSheetEdit(record)">编辑</a>
@@ -86,53 +46,7 @@
       <a-tab-pane key="works">
         <span slot="tab"><a-icon type="solution" /> 重点工作事项</span>
         <div class="tab-body">
-          <div class="filter-bar">
-            <a-form layout="inline">
-              <a-form-item label="所属体系">
-                <a-select v-model="workFilters.system" placeholder="全部体系" allow-clear style="width: 130px">
-                  <a-select-option v-for="s in systems" :key="s" :value="s">{{ s }}</a-select-option>
-                </a-select>
-              </a-form-item>
-              <a-form-item label="归属部门">
-                <a-select v-model="workFilters.deptId" placeholder="全部部门" allow-clear show-search option-filter-prop="children" style="width: 200px">
-                  <a-select-option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</a-select-option>
-                </a-select>
-              </a-form-item>
-              <a-form-item label="工作状态">
-                <a-select v-model="workFilters.status" placeholder="全部状态" allow-clear style="width: 130px">
-                  <a-select-option v-for="s in workStatusOptions" :key="s" :value="s">{{ s }}</a-select-option>
-                </a-select>
-              </a-form-item>
-              <a-form-item label="关键词">
-                <a-input v-model="workFilters.keyword" placeholder="编号 / 工作 / 问题 / 建议 / 落实情况" allow-clear style="width: 280px" @pressEnter="applyWorkFilter" />
-              </a-form-item>
-              <template v-if="workExpanded">
-                <a-form-item label="牵头人">
-                  <a-select v-model="workFilters.leadId" placeholder="全部牵头人" allow-clear show-search option-filter-prop="children" style="width: 150px">
-                    <a-select-option v-for="p in allStaff" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
-                  </a-select>
-                </a-form-item>
-                <a-form-item label="完成时限"><a-range-picker v-model="workFilters.dueRange" style="width: 230px" /></a-form-item>
-                <a-form-item label="项目落实进展">
-                  <a-select v-model="workFilters.progress" placeholder="全部进展" allow-clear style="width: 160px">
-                    <a-select-option v-for="s in ['未配置项目', '未填写', '部分填写', '全部填写']" :key="s" :value="s">{{ s }}</a-select-option>
-                  </a-select>
-                </a-form-item>
-                <a-form-item label="梳理单">
-                  <a-select v-model="workFilters.sheetId" placeholder="全部梳理单" allow-clear show-search option-filter-prop="children" style="width: 170px">
-                    <a-select-option v-for="s in $store.db.sheets" :key="s.id" :value="s.id">{{ s.id }}</a-select-option>
-                  </a-select>
-                </a-form-item>
-              </template>
-              <a-form-item>
-                <div class="filter-actions">
-                  <a-button type="primary" @click="applyWorkFilter"><a-icon type="search" /> 查询</a-button>
-                  <a-button @click="resetWorkFilter"><a-icon type="reload" /> 重置</a-button>
-                  <span class="filter-toggle" @click="workExpanded = !workExpanded">{{ workExpanded ? '收起' : '展开' }} <a-icon :type="workExpanded ? 'up' : 'down'" /></span>
-                </div>
-              </a-form-item>
-            </a-form>
-          </div>
+          <list-query type="works" v-model="workFilters" @query="applyWorkFilter" @reset="resetWorkFilter" />
 
           <a-table
             :columns="workColumns"
@@ -141,14 +55,8 @@
             @change="onWorkTableChange"
             row-key="id"
             size="middle"
-            :scroll="{ x: 1250 }"
+            :scroll="{ x: 1900 }"
           >
-            <div slot="cellTitle" slot-scope="text" class="work-title-cell" :title="text">{{ text }}</div>
-            <div slot="progress" slot-scope="text, record" class="progress-cell">
-              <div class="progress-scope">{{ workProgressText(record) }}</div>
-              <div v-if="workMissingText(record)" class="muted progress-summary">{{ workMissingText(record) }}</div>
-            </div>
-            <div slot="status" slot-scope="text"><status-tag :status="text" /></div>
             <div slot="action" slot-scope="text, record" class="table-actions">
               <template v-if="record.status === '落实中'">
                 <a class="link-btn" @click="openExec(record)">填写执行情况</a>
@@ -233,7 +141,7 @@
         size="small"
         bordered
         row-key="_key"
-        :scroll="{ x: 1250 }"
+        :scroll="{ x: 1900 }"
       >
         <div slot="titleCell" slot-scope="text, record">
           <a-textarea v-model="record.title" :rows="2" :max-length="200" placeholder="请输入单条重点工作内容" />
@@ -280,7 +188,7 @@
       <template v-if="sheetCurrent">
         <div class="detail-grid">
           <div class="detail-item"><span class="detail-label">梳理单编号</span><span class="detail-value">{{ sheetCurrent.id }}</span></div>
-          <div class="detail-item"><span class="detail-label">梳理单状态</span><span class="detail-value"><status-tag :status="sheetCurrent.status" /></span></div>
+          <div class="detail-item"><span class="detail-label">流程状态</span><span class="detail-value"><status-tag :status="sheetProcessStatus(sheetCurrent)" /></span></div>
           <div class="detail-item"><span class="detail-label">所属体系</span><span class="detail-value">{{ sheetCurrent.system }}</span></div>
           <div class="detail-item"><span class="detail-label">归属部门</span><span class="detail-value">{{ sheetCurrent.deptName }}</span></div>
           <div class="detail-item"><span class="detail-label">填报人</span><span class="detail-value">{{ sheetCurrent.creatorName }}</span></div>
@@ -288,6 +196,14 @@
           <div class="detail-item full"><span class="detail-label">创建说明</span><span class="detail-value">{{ sheetCurrent.remark || '—' }}</span></div>
         </div>
 
+        <div v-if="sheetCurrent.approvals && sheetCurrent.approvals.length" class="drawer-section">
+          <div class="drawer-section-title">审批记录与退回意见</div>
+          <div v-for="node in sheetCurrent.approvals" :key="node.key" class="sheet-approval-node">
+            <b>{{ node.name }} · {{ node.approver }}</b> <status-tag :status="node.result" />
+            <div class="muted">{{ node.time || '尚未办理' }}</div>
+            <div>{{ node.comment || '—' }}</div>
+          </div>
+        </div>
         <div class="drawer-section" style="margin-top:16px;">
           <div class="drawer-section-title">重点工作明细（{{ sheetCurrent.items.length }} 条）</div>
           <a-table
@@ -323,7 +239,8 @@
           <status-tag :status="workCurrent.status" />
         </div>
         <div class="detail-grid">
-          <div class="detail-item"><span class="detail-label">事项编号</span><span class="detail-value">{{ workCurrent.id }}</span></div>
+          <div class="detail-item"><span class="detail-label">事项编号</span><span class="detail-value">{{ workDisplayCode(workCurrent) }}</span></div>
+          <div class="detail-item"><span class="detail-label">销项审批状态</span><span class="detail-value"><status-tag :status="closeApprovalStatus(workCurrent)" /></span></div>
           <div class="detail-item"><span class="detail-label">所属体系</span><span class="detail-value">{{ workCurrent.system }}</span></div>
           <div class="detail-item"><span class="detail-label">归属部门</span><span class="detail-value">{{ workCurrent.deptName }}</span></div>
           <div class="detail-item"><span class="detail-label">工作牵头人</span><span class="detail-value">{{ workCurrent.leadName }}</span></div>
@@ -471,7 +388,7 @@
           <template v-else-if="workCurrent.closeRequest">
             <div class="detail-grid">
               <div class="detail-item"><span class="detail-label">申请编号</span><span class="detail-value">{{ workCurrent.closeRequest.id }}</span></div>
-              <div class="detail-item"><span class="detail-label">销项状态</span><span class="detail-value"><status-tag :status="workCurrent.closeRequest.status === '已通过' ? '已销项' : (workCurrent.closeRequest.status === '审批中' ? '销项审批中' : '已退回')" :text="workCurrent.closeRequest.status" /></span></div>
+              <div class="detail-item"><span class="detail-label">销项审批状态</span><span class="detail-value"><status-tag :status="closeApprovalStatus(workCurrent)" /></span></div>
               <div class="detail-item full"><span class="detail-label">总体执行情况</span><span class="detail-value">{{ workCurrent.closeRequest.overallContent || workCurrent.overallContent }}</span></div>
               <div class="detail-item full"><span class="detail-label">包含项目</span><span class="detail-value">{{ (workCurrent.closeRequest.projectExecutions || workCurrent.projectExecutions || []).map(e => e.projectName).join('、') || '无关联项目' }}</span></div>
               <div class="detail-item full"><span class="detail-label">办结说明</span><span class="detail-value">{{ workCurrent.closeRequest.reason }}</span></div>
@@ -540,10 +457,9 @@ import StatusTag from '../components/StatusTag.vue'
 import ApprovalModal from '../components/ApprovalModal.vue'
 import FileUploader from '../components/FileUploader.vue'
 import { todayStr, fmtDate } from '../utils/date'
-import { matchesKeyword, inDateRange } from '../utils/listQuery'
-
-const emptySheetFilters = () => ({ system: undefined, deptId: undefined, status: undefined, keyword: '', creatorId: undefined, dateRange: null, itemCount: undefined })
-const emptyWorkFilters = () => ({ system: undefined, deptId: undefined, status: undefined, keyword: '', leadId: undefined, dueRange: null, progress: undefined, sheetId: undefined })
+import ListQuery from '../components/ListQuery.vue'
+import { emptyListFilters, listRows, listColumns } from '../utils/businessLists'
+import { sheetProcessStatus, closeApprovalStatus, workDisplayCode } from '../utils/workflow'
 
 function newSheetItem (deptId) {
   return {
@@ -559,20 +475,16 @@ function newSheetItem (deptId) {
 
 export default {
   name: 'WorksView',
-  components: { StatusTag, ApprovalModal, FileUploader },
+  components: { StatusTag, ApprovalModal, FileUploader, ListQuery },
   data () {
     return {
       activeTab: 'sheets',
       today: todayStr(),
       systems: [],
-      sheetExpanded: false,
-      workExpanded: false,
-      sheetFilters: emptySheetFilters(),
-      appliedSheet: emptySheetFilters(),
-      workFilters: emptyWorkFilters(),
-      appliedWork: emptyWorkFilters(),
-      sheetStatusOptions: ['草稿', '审核中', '已生效', '已退回'],
-      workStatusOptions: ['待生效', '落实中', '销项审批中', '已销项'],
+      sheetFilters: emptyListFilters('sheets', this.$store),
+      appliedSheet: emptyListFilters('sheets', this.$store),
+      workFilters: emptyListFilters('works', this.$store),
+      appliedWork: emptyListFilters('works', this.$store),
       sheetPagination: { current: 1, pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
       workPagination: { current: 1, pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
 
@@ -598,12 +510,7 @@ export default {
     }
   },
   computed: {
-    allStaff () {
-      return this.$store.allStaff()
-    },
-    sheetCreators () {
-      return [...new Map(this.$store.db.sheets.map(s => [s.creatorId, { id: s.creatorId, name: s.creatorName }])).values()]
-    },
+
     departments () {
       return this.$store.db.departments
     },
@@ -616,65 +523,21 @@ export default {
       return this.$store.staffOfDept(this.sheetForm.deptId)
     },
     filteredSheets () {
-      const f = this.appliedSheet
-      return this.$store.db.sheets.filter(s => {
-        if (f.system && s.system !== f.system) return false
-        if (f.deptId && s.deptId !== f.deptId) return false
-        if (f.status && s.status !== f.status) return false
-        if (f.creatorId && s.creatorId !== f.creatorId) return false
-        if (!inDateRange(s.createDate, f.dateRange)) return false
-        if (typeof f.itemCount === 'number' && s.items.length !== f.itemCount) return false
-        if (!matchesKeyword(f.keyword, [s.id, s.deptName, s.creatorName, s.remark])) return false
-        return true
-      })
+      return listRows('sheets', this.$store, this.appliedSheet)
     },
     sheetColumns () {
-      return [
-        { title: '序号', width: 54, align: 'center', customRender: (text, record, index) => index + 1 },
-        { title: '梳理单编号', dataIndex: 'id', width: 118 },
-        { title: '体系', dataIndex: 'system', width: 78 },
-        { title: '归属部门', dataIndex: 'deptName', width: 176 },
-        { title: '重点工作数', dataIndex: 'items', width: 92, align: 'center', scopedSlots: { customRender: 'itemCount' } },
-        { title: '填报人', dataIndex: 'creatorName', width: 84 },
-        { title: '填报日期', dataIndex: 'createDate', width: 106 },
-        { title: '创建说明', dataIndex: 'remark', width: 250, scopedSlots: { customRender: 'remark' } },
-        { title: '梳理单状态', dataIndex: 'status', width: 96, scopedSlots: { customRender: 'status' } },
-        { title: '操作', width: 190, scopedSlots: { customRender: 'action' } }      ]
+      return listColumns('sheets', this, this.sheetPagination).concat({ title: '操作', width: 230, scopedSlots: { customRender: 'action' } })
     },
     filteredWorks () {
-      const f = this.appliedWork
-      return this.$store.db.works.filter(w => {
-        if (f.system && w.system !== f.system) return false
-        if (f.deptId && w.deptId !== f.deptId) return false
-        if (f.status && w.status !== f.status) return false
-        if (f.sheetId && w.sheetId !== f.sheetId) return false
-        if (f.leadId && w.leadId !== f.leadId) return false
-        if (!inDateRange(w.dueDate, f.dueRange)) return false
-        const p = this.workProgress(w)
-        const progress = !p.B ? '未配置项目' : (p.A === p.B ? '全部填写' : (p.A ? '部分填写' : '未填写'))
-        if (f.progress && f.progress !== progress) return false
-        if (!matchesKeyword(f.keyword, [w.id, w.title, w.leadName, w.deptName, w.problem, w.suggestion, w.overallContent,
-          ...(w.projectExecutions || []).map(e => e.content)])) return false
-        return true
-      })
+      return listRows('works', this.$store, this.appliedWork)
     },
     workColumns () {
-      return [
-        { title: '序号', width: 54, align: 'center', customRender: (text, record, index) => index + 1 },
-        { title: '事项编号', dataIndex: 'id', width: 104 },
-        { title: '体系', dataIndex: 'system', width: 66 },
-        { title: '部门', dataIndex: 'deptName', width: 150 },
-        { title: '重点工作', dataIndex: 'title', width: 240, scopedSlots: { customRender: 'cellTitle' } },
-        { title: '牵头人', dataIndex: 'leadName', width: 74 },
-        { title: '完成时限', dataIndex: 'dueDate', width: 110, align: 'center' },
-        { title: '项目落实进展', dataIndex: 'projectExecutions', key: 'progress', width: 170, scopedSlots: { customRender: 'progress' } },
-        { title: '状态', dataIndex: 'status', width: 92, scopedSlots: { customRender: 'status' } },
-        { title: '操作', width: 200, scopedSlots: { customRender: 'action' } }
-      ]
+      return listColumns('works', this, this.workPagination).concat({ title: '操作', width: 230, scopedSlots: { customRender: 'action' } })
     },
     sheetDetailColumns () {
       return [
         { title: '序号', dataIndex: 'seq', width: 56, align: 'center' },
+        { title: '事项编号', key: 'code', width: 155, customRender: (text, item) => workDisplayCode({ sheetId: this.sheetCurrent.id, seq: item.seq }) },
         { title: '重点工作', dataIndex: 'title', width: 280 },
         { title: '工作牵头人', dataIndex: 'leadName', width: 100 },
         { title: '完成时限', dataIndex: 'dueDate', width: 110 },
@@ -719,7 +582,7 @@ export default {
     workDrawerTitle () {
       if (!this.workCurrent) return '重点工作'
       const map = { view: '重点工作详情', exec: '填写执行情况', close: '申请销项' }
-      return `${map[this.workDrawerMode] || '重点工作详情'} · ${this.workCurrent.id}`
+      return `${map[this.workDrawerMode] || '重点工作详情'} · ${workDisplayCode(this.workCurrent)}`
     },
     sheetApprovalNodes () {
       return this.sheetApprovalRecord ? this.sheetApprovalRecord.approvals : []
@@ -758,6 +621,7 @@ export default {
     }
   },
   methods: {
+    sheetProcessStatus, closeApprovalStatus, workDisplayCode,
     onSheetTableChange ({ current, pageSize }) {
       Object.assign(this.sheetPagination, { current, pageSize })
     },
@@ -790,7 +654,6 @@ export default {
       }
       if (this.$route.query.sheetId) {
         this.workFilters.sheetId = this.$route.query.sheetId
-        this.workExpanded = true
         this.applyWorkFilter()
       }
       if (this.$route.query.id) {
@@ -812,12 +675,7 @@ export default {
       if (!p.B) return '未配置有效帮扶项目'
       return `${p.A}/${p.B}`
     },
-    workMissingText (work) {
-      const p = this.workProgress(work)
-      if (!p.B) return '请先检查牵头人帮扶关系'
-      if (p.A === p.B) return '项目已全部填写'
-      return `未填 ${p.B - p.A} 项`
-    },
+
     canClose (work) {
       const p = this.workProgress(work)
       return p.B > 0 && p.A === p.B
@@ -837,7 +695,7 @@ export default {
       this.sheetPagination = { ...this.sheetPagination, current: 1 }
     },
     resetSheetFilter () {
-      this.sheetFilters = emptySheetFilters()
+      this.sheetFilters = emptyListFilters('sheets', this.$store)
       this.applySheetFilter()
     },
     applyWorkFilter () {
@@ -845,7 +703,7 @@ export default {
       this.workPagination = { ...this.workPagination, current: 1 }
     },
     resetWorkFilter () {
-      this.workFilters = emptyWorkFilters()
+      this.workFilters = emptyListFilters('works', this.$store)
       this.applyWorkFilter()
     },
     onSystemChange () {
@@ -966,12 +824,12 @@ export default {
       })
     },
     openSheetDetail (sheet) {
-      this.sheetCurrent = sheet
+      this.sheetCurrent = this.$store.db.sheets.find(s => s.id === sheet.id)
       this.sheetDetailVisible = true
     },
     openSheetApproval (sheet) {
       this.sheetDetailVisible = false
-      this.sheetApprovalRecord = sheet
+      this.sheetApprovalRecord = this.$store.db.sheets.find(s => s.id === sheet.id)
       this.sheetApprovalVisible = true
     },
     handleSheetApproval ({ action, comment }) {
@@ -986,12 +844,11 @@ export default {
     viewSheetWorks (sheet) {
       this.sheetDetailVisible = false
       this.activeTab = 'works'
-      this.workExpanded = true
-      this.workFilters = { ...emptyWorkFilters(), sheetId: sheet.id }
+      this.workFilters = { ...emptyListFilters('works', this.$store), sheetId: sheet.id }
       this.applyWorkFilter()
     },
     openWorkDetail (work) {
-      this.workCurrent = work
+      this.workCurrent = this.$store.workById(work.id)
       if (work.status === '落实中') this.$store.syncWorkProjectScope(work)
       this.workDrawerMode = 'view'
       this.workDrawerVisible = true
@@ -1028,7 +885,7 @@ export default {
     openCloseApproval (work) {
       if (!work.closeRequest) return
       this.workDrawerVisible = false
-      this.workApprovalRecord = work
+      this.workApprovalRecord = this.$store.workById(work.id)
       this.workApprovalVisible = true
     },
     closeWorkDrawer () {

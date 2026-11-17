@@ -120,7 +120,7 @@
           </div>
         </div>
 
-        <div class="page-panel">
+        <div class="page-panel" :class="{ 'overview-panel': currentPath === '/overview' }">
           <div class="breadcrumb-row">
             <a-icon type="home" />
             <span>服务项目</span>
@@ -339,6 +339,8 @@ export default {
     $route: {
       immediate: true,
       handler (route) {
+        this.$store.syncV14Data()
+        this.$store.refreshDailyWindow()
         this.$store.syncAllWorkProjectScopes()
         this.$store.persist()
         if (route.path === '/overview') return

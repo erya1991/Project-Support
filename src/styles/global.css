@@ -549,6 +549,10 @@ a {
   width: 7px;
 }
 
+.page-panel.overview-panel { display: flex; flex-direction: column; overflow: hidden; }
+.overview-panel > .breadcrumb-row { flex: none; }
+.business-cell { white-space: pre-line; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+
 .page-panel::-webkit-scrollbar-thumb {
   background: #d2dfec;
   border-radius: 3px;

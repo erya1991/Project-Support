@@ -1,62 +1,27 @@
 <template>
   <div class="appeals-page">
-    <div class="filter-bar">
-      <a-form layout="inline">
-        <a-form-item label="所属项目">
-          <a-select v-model="filters.projectId" placeholder="全部项目" allow-clear show-search option-filter-prop="children" style="width: 190px">
-            <a-select-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="主责部门">
-          <a-select v-model="filters.deptId" placeholder="全部部门" allow-clear show-search option-filter-prop="children" style="width: 180px">
-            <a-select-option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="承办人">
-          <a-select v-model="filters.personId" placeholder="全部人员" allow-clear show-search option-filter-prop="children" style="width: 150px">
-            <a-select-option v-for="p in people" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="办理状态">
-          <a-select v-model="filters.status" placeholder="全部状态" allow-clear style="width: 130px">
-            <a-select-option v-for="s in statusOptions" :key="s" :value="s">{{ s }}</a-select-option>
-          </a-select>
-        </a-form-item>
-        <template v-if="expanded">
-          <a-form-item label="诉求来源">
-            <a-select v-model="filters.source" placeholder="全部来源" allow-clear style="width: 140px">
-              <a-select-option v-for="s in sourceOptions" :key="s" :value="s">{{ s }}</a-select-option>
-            </a-select>
-          </a-form-item>
-          <a-form-item label="协同部门">
-            <a-select v-model="filters.coDeptId" placeholder="全部协同部门" allow-clear show-search option-filter-prop="children" style="width: 180px">
-              <a-select-option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</a-select-option>
-            </a-select>
-          </a-form-item>
-          <a-form-item label="完成时限">
-            <a-range-picker v-model="filters.dueRange" style="width: 240px" />
-          </a-form-item>
-          <a-form-item label="超期状态">
-            <a-select v-model="filters.overdue" placeholder="全部" allow-clear style="width: 100px">
-              <a-select-option value="是">已超期</a-select-option>
-              <a-select-option value="否">未超期</a-select-option>
-            </a-select>
-          </a-form-item>
-          <a-form-item label="关键词">
-            <a-input v-model="filters.keyword" placeholder="编号 / 事项 / 描述 / 推进计划 / 最新进展" allow-clear style="width: 300px" @pressEnter="query" />
-          </a-form-item>
-        </template>
-        <a-form-item>
-          <div class="filter-actions">
-            <a-button type="primary" @click="query"><a-icon type="search" /> 查询</a-button>
-            <a-button @click="reset"><a-icon type="reload" /> 重置</a-button>
-            <span class="filter-toggle" @click="expanded = !expanded">
-              {{ expanded ? '收起' : '展开' }} <a-icon :type="expanded ? 'up' : 'down'" />
-            </span>
-          </div>
-        </a-form-item>
-      </a-form>
-    </div>
+    <section v-if="closeVisible && closeRecord" class="appeal-close-page">
+      <div class="close-page-header"><h3>项目诉求销项申请</h3><a-button @click="closeVisible = false"><a-icon type="arrow-left" />返回列表</a-button></div>
+      <div class="alert-note">填写办结说明后提交项目经理确认、企划归档；销项附件选填。</div>
+      <div class="drawer-section"><div class="drawer-section-title">诉求摘要</div>
+        <div class="detail-grid">
+          <div class="detail-item"><span class="detail-label">诉求编号</span><span class="detail-value">{{ closeRecord.id }}</span></div>
+          <div class="detail-item"><span class="detail-label">所属项目</span><span class="detail-value">{{ closeRecord.projectName }}</span></div>
+          <div class="detail-item"><span class="detail-label">主责部门 / 承办人</span><span class="detail-value">{{ closeRecord.deptName }} / {{ closeRecord.personName }}</span></div>
+          <div class="detail-item"><span class="detail-label">完成时限</span><span class="detail-value">{{ closeRecord.dueDate }}</span></div>
+          <div class="detail-item full"><span class="detail-label">诉求事项</span><span class="detail-value">{{ closeRecord.title }}</span></div>
+          <div class="detail-item full"><span class="detail-label">具体描述</span><span class="detail-value">{{ closeRecord.desc }}</span></div>
+          <div class="detail-item full"><span class="detail-label">推进计划</span><span class="detail-value">{{ closeRecord.plan }}</span></div>
+        </div>
+      </div>
+      <div class="drawer-section"><div class="drawer-section-title">销项申请</div>
+        <div class="close-field"><div class="form-label">办结说明 <span class="danger-text">*</span></div><a-textarea v-model="closeReason" :rows="6" :max-length="500" placeholder="说明实际解决情况和办结结果" /></div>
+        <div class="close-field"><div class="form-label">销项附件</div><file-uploader v-model="closeAttachments" tip="选填：办结成果证明、会议纪要、验收记录或现场照片" /></div>
+      </div>
+      <div class="close-page-actions"><a-button @click="closeVisible = false">取消</a-button><a-button type="primary" @click="submitClose">提交申请</a-button></div>
+    </section>
+    <template v-else>
+    <list-query type="appeals" v-model="filters" @query="query" @reset="reset" />
 
     <div class="toolbar">
       <a-button type="primary" @click="openCreate"><a-icon type="plus" /> 新增项目诉求</a-button>
@@ -70,21 +35,8 @@
       @change="onTableChange"
       row-key="id"
       size="middle"
-      :scroll="{ x: 1280 }"
+      :scroll="{ x: 2100 }"
     >
-      <div slot="cellTitle" slot-scope="text" class="title-cell" :title="text">{{ text }}</div>
-      <div slot="plan" slot-scope="text" class="plan-cell" :title="text">{{ text }}</div>
-      <div slot="due" slot-scope="text, record">
-        <div class="due-cell">
-          <span :class="{ 'danger-text': isOverdue(record) }">{{ text }}</span>
-          <a-tag v-if="isOverdue(record)" color="red">超期</a-tag>
-        </div>
-      </div>
-      <div slot="latest" slot-scope="text, record">
-        <div class="latest-cell" :title="text">{{ text }}</div>
-        <div class="latest-time muted">{{ record.latestReportDate || '' }}</div>
-      </div>
-      <div slot="status" slot-scope="text"><status-tag :status="text" /></div>
       <div slot="action" slot-scope="text, record" class="table-actions">
         <template v-if="record.status === '办理中'">
           <a class="link-btn" @click="openClose(record)">申请销项</a>
@@ -107,6 +59,7 @@
     </a-table>
 
     <!-- 新增 / 编辑 -->
+    </template>
     <a-modal
       :title="formMode === 'create' ? '新增项目诉求' : '编辑项目诉求'"
       :visible="formVisible"
@@ -210,25 +163,6 @@
       </template>
     </a-modal>
 
-    <!-- 发起销项 -->
-    <a-modal title="发起诉求销项" :visible="closeVisible" :width="680" @cancel="closeVisible = false">
-      <div class="alert-note warn" style="margin-bottom:12px;">
-        <a-icon type="exclamation-circle" /> 请填写办结说明；销项附件为选填，可根据实际情况上传。
-      </div>
-      <div class="close-field">
-        <div class="form-label">办结说明 <span class="danger-text">*</span></div>
-        <a-textarea v-model="closeReason" :rows="4" :max-length="500" placeholder="说明实际解决情况和办结结果" />
-      </div>
-      <div class="close-field">
-        <div class="form-label">销项附件</div>
-        <file-uploader v-model="closeAttachments" tip="选填：可上传办结成果证明，如会议纪要、验收记录、现场照片" />
-      </div>
-      <template slot="footer">
-        <a-button @click="closeVisible = false">关闭</a-button>
-        <a-button type="primary" @click="submitClose">提交销项申请</a-button>
-      </template>
-    </a-modal>
-
     <!-- 详情 -->
     <a-modal
       :title="current ? current.title : '项目诉求详情'"
@@ -262,6 +196,29 @@
           </div>
         </div>
 
+        <div class="drawer-section">
+          <div class="drawer-section-title">
+            销项申请
+            <span class="extra" v-if="current.closeRequest">{{ current.closeRequest.id }}</span>
+          </div>
+          <template v-if="current.closeRequest">
+            <div class="detail-grid">
+              <div class="detail-item"><span class="detail-label">销项审批状态</span><span class="detail-value"><status-tag :status="closeApprovalStatus(current)" /></span></div>
+              <div class="detail-item"><span class="detail-label">申请人 / 时间</span><span class="detail-value">{{ current.closeRequest.submittedBy }} / {{ current.closeRequest.submittedAt }}</span></div>
+              <div class="detail-item full"><span class="detail-label">办结说明</span><span class="detail-value">{{ current.closeRequest.reason }}</span></div>
+              <div class="detail-item full">
+                <span class="detail-label">销项附件</span>
+                <span class="detail-value">
+                  <span v-for="(f, i) in current.closeRequest.attachments" :key="i" class="file-chip"><a-icon type="paper-clip" /> {{ f.name }}</span>
+                  <span v-if="!current.closeRequest.attachments || !current.closeRequest.attachments.length" class="muted">无</span>
+                </span>
+              </div>
+            </div>
+            <div v-for="node in current.closeRequest.nodes" :key="node.key" class="close-approval-node"><b>{{ node.name }} · {{ node.approver }}</b> <status-tag :status="node.result" /><div class="muted">{{ node.time }} {{ node.comment }}</div></div>
+          </template>
+          <div v-else class="close-empty">尚未提交销项申请。日报反馈进展不等同于销项，办理完成后需单独提交办结申请。</div>
+        </div>
+
         <div class="drawer-section" style="margin-top:16px;">
           <div class="drawer-section-title">
             办理日报
@@ -286,27 +243,6 @@
             </div>
           </a-table>
           <div v-if="!currentReports.length" class="exec-empty">暂无已提交的关联日报</div>
-        </div>
-
-        <div class="drawer-section">
-          <div class="drawer-section-title">
-            销项申请
-            <span class="extra" v-if="current.closeRequest">{{ current.closeRequest.id }}</span>
-          </div>
-          <template v-if="current.closeRequest">
-            <div class="detail-grid">
-              <div class="detail-item"><span class="detail-label">销项状态</span><span class="detail-value"><status-tag :status="current.closeRequest.status === '已通过' ? '已销项' : (current.closeRequest.status === '审批中' ? '销项审批中' : '已退回')" :text="current.closeRequest.status" /></span></div>
-              <div class="detail-item full"><span class="detail-label">办结说明</span><span class="detail-value">{{ current.closeRequest.reason }}</span></div>
-              <div class="detail-item full">
-                <span class="detail-label">销项附件</span>
-                <span class="detail-value">
-                  <span v-for="(f, i) in current.closeRequest.attachments" :key="i" class="file-chip"><a-icon type="paper-clip" /> {{ f.name }}</span>
-                  <span v-if="!current.closeRequest.attachments || !current.closeRequest.attachments.length" class="muted">无</span>
-                </span>
-              </div>
-            </div>
-          </template>
-          <div v-else class="close-empty">尚未提交销项申请。日报反馈进展不等同于销项，办理完成后需单独提交办结申请。</div>
         </div>
       </template>
       <template slot="footer">
@@ -352,7 +288,9 @@
 
 <script>
 import moment from 'moment'
-import { matchesKeyword } from '../utils/listQuery'
+import ListQuery from '../components/ListQuery.vue'
+import { emptyListFilters, listRows, listColumns } from '../utils/businessLists'
+import { closeApprovalStatus } from '../utils/workflow'
 import StatusTag from '../components/StatusTag.vue'
 import ApprovalModal from '../components/ApprovalModal.vue'
 import FileUploader from '../components/FileUploader.vue'
@@ -360,34 +298,12 @@ import { todayStr, fmtDate, isOverdue as checkOverdue } from '../utils/date'
 
 export default {
   name: 'AppealsView',
-  components: { StatusTag, ApprovalModal, FileUploader },
+  components: { StatusTag, ApprovalModal, FileUploader, ListQuery },
   data () {
     return {
-      expanded: false,
-      filters: {
-        projectId: undefined,
-        deptId: undefined,
-        personId: undefined,
-        status: undefined,
-        dueRange: null,
-        source: undefined,
-        coDeptId: undefined,
-        overdue: undefined,
-        keyword: ''
-      },
-      applied: {
-        projectId: undefined,
-        deptId: undefined,
-        personId: undefined,
-        status: undefined,
-        dueRange: null,
-        source: undefined,
-        coDeptId: undefined,
-        overdue: undefined,
-        keyword: ''
-      },
+      filters: emptyListFilters('appeals', this.$store),
+      applied: emptyListFilters('appeals', this.$store),
       pagination: { current: 1, pageSize: 10, showSizeChanger: true, showTotal: total => `共 ${total} 条`, pageSizeOptions: ['10', '20', '50'] },
-      statusOptions: ['办理中', '销项审批中', '已销项', '已删除'],
       sourceOptions: ['工程部梳理', '项目反馈', '日报', '现场', '其他'],
       formVisible: false,
       formMode: 'create',
@@ -441,46 +357,10 @@ export default {
       return fmtDate(this.form.dueDate) !== this.editingDueDate
     },
     filteredAppeals () {
-      const f = this.applied
-      const today = todayStr()
-      let rows = this.$store.db.appeals.slice()
-      if (f.status === '已删除') {
-        rows = rows.filter(a => a.status === '已删除')
-      } else {
-        rows = rows.filter(a => a.status !== '已删除')
-        if (f.status) rows = rows.filter(a => a.status === f.status)
-      }
-      if (f.projectId) rows = rows.filter(a => a.projectId === f.projectId)
-      if (f.deptId) rows = rows.filter(a => a.deptId === f.deptId)
-      if (f.personId) rows = rows.filter(a => a.personId === f.personId)
-      if (f.source) rows = rows.filter(a => a.source === f.source)
-      if (f.coDeptId) rows = rows.filter(a => (a.coDepts || []).includes(f.coDeptId))
-      if (f.dueRange && f.dueRange.length === 2) {
-        const start = fmtDate(f.dueRange[0])
-        const end = fmtDate(f.dueRange[1])
-        rows = rows.filter(a => a.dueDate >= start && a.dueDate <= end)
-      }
-      if (f.overdue === '是') rows = rows.filter(a => a.dueDate < today && a.status !== '已销项')
-      if (f.overdue === '否') rows = rows.filter(a => !(a.dueDate < today && a.status !== '已销项'))
-      if (f.keyword) {
-        rows = rows.filter(a => matchesKeyword(f.keyword, [a.id, a.title, a.desc, a.personName, a.projectName, a.plan, a.latestProgress]))
-      }
-      return rows
+      return listRows('appeals', this.$store, this.applied)
     },
     columns () {
-      return [
-        { title: '序号', width: 54, align: 'center', customRender: (text, record, index) => index + 1 },
-        { title: '诉求编号', dataIndex: 'id', width: 100 },
-        { title: '诉求事项', dataIndex: 'title', width: 170, scopedSlots: { customRender: 'cellTitle' } },
-        { title: '所属项目', dataIndex: 'projectName', width: 130 },
-        { title: '主责部门', dataIndex: 'deptName', width: 115 },
-        { title: '承办人', dataIndex: 'personName', width: 70 },
-        { title: '推进计划', dataIndex: 'plan', width: 110, scopedSlots: { customRender: 'plan' } },
-        { title: '完成时限', dataIndex: 'dueDate', width: 138, scopedSlots: { customRender: 'due' } },
-        { title: '最新进展', dataIndex: 'latestProgress', width: 120, scopedSlots: { customRender: 'latest' } },
-        { title: '状态', dataIndex: 'status', width: 88, scopedSlots: { customRender: 'status' } },
-        { title: '操作', width: 180, scopedSlots: { customRender: 'action' } }
-      ]
+      return listColumns('appeals', this, this.pagination).concat({ title: '操作', width: 210, scopedSlots: { customRender: 'action' } })
     },
     currentReports () {
       return this.current ? this.$store.reportsForAppeal(this.current.id) : []
@@ -515,6 +395,7 @@ export default {
     }
   },
   methods: {
+    closeApprovalStatus,
     onTableChange ({ current, pageSize }) {
       Object.assign(this.pagination, { current, pageSize })
     },
@@ -544,17 +425,7 @@ export default {
       this.pagination = { ...this.pagination, current: 1 }
     },
     reset () {
-      this.filters = {
-        projectId: undefined,
-        deptId: undefined,
-        personId: undefined,
-        status: undefined,
-        dueRange: null,
-        source: undefined,
-        coDeptId: undefined,
-        overdue: undefined,
-        keyword: ''
-      }
+      this.filters = emptyListFilters('appeals', this.$store)
       this.query()
     },
     openCreate () {
@@ -652,9 +523,9 @@ export default {
     },
     openClose (record) {
       this.detailVisible = false
-      this.closeRecord = record
-      this.closeReason = ''
-      this.closeAttachments = []
+      this.closeRecord = this.$store.db.appeals.find(a => a.id === record.id)
+      this.closeReason = record.closeRequest ? record.closeRequest.reason : ''
+      this.closeAttachments = record.closeRequest ? record.closeRequest.attachments.slice() : []
       this.closeVisible = true
     },
     canDelete (record) {
@@ -685,15 +556,16 @@ export default {
       })
       if (!res.ok) return this.$message.error(res.message)
       this.closeVisible = false
+      this.query()
       this.$message.success('销项申请已提交')
     },
     openDetail (record) {
-      this.current = record
+      this.current = this.$store.db.appeals.find(r => r.id === record.id)
       this.detailVisible = true
     },
     openApproval (record) {
       this.detailVisible = false
-      this.approvalRecord = record
+      this.approvalRecord = this.$store.db.appeals.find(r => r.id === record.id)
       this.approvalVisible = true
     },
     handleApproval ({ action, comment }) {
@@ -709,6 +581,10 @@ export default {
 </script>
 
 <style scoped>
+.close-page-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+.close-page-header h3 { margin:0; color:#234968; }
+.close-page-actions { display:flex; justify-content:flex-end; gap:12px; padding:16px 0; border-top:1px solid #edf2f7; }
+.close-approval-node { padding:8px 0; border-bottom:1px solid #edf2f7; }
 .title-cell {
   overflow: hidden;
   text-overflow: ellipsis;

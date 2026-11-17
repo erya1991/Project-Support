@@ -15,6 +15,8 @@ async function main () {
     const { migrateDb } = await server.ssrLoadModule('/src/store/migrate.js')
     const { todayStr } = await server.ssrLoadModule('/src/utils/date.js')
     const { buildDailyReport, buildWeeklyReport } = await server.ssrLoadModule('/src/utils/reportData.js')
+    const { listRows, listColumns, listFilterFields, emptyListFilters } = await server.ssrLoadModule('/src/utils/businessLists.js')
+    const { sheetProcessStatus, closeApprovalStatus, suggestionApprovalStatus, workDisplayCode } = await server.ssrLoadModule('/src/utils/workflow.js')
     const views = {}
     for (const name of ['Relations', 'Works', 'Appeals', 'Daily', 'Suggestions', 'Overview']) {
       views[name] = (await server.ssrLoadModule(`/src/views/${name}.vue`)).default
@@ -22,7 +24,7 @@ async function main () {
     const reset = () => { store.state.db = migrateDb(buildSeed()) }
     const vm = name => {
       const options = views[name].options || views[name]
-      const instance = { ...options.data(), $store: store, $route: { query: {} }, $message: { warning () {}, error () {}, success () {} }, $nextTick: fn => fn() }
+      const instance = { ...options.data.call({ $store: store }), $store: store, $route: { query: {} }, $message: { warning () {}, error () {}, success () {} }, $nextTick: fn => fn() }
       for (const [key, value] of Object.entries(options.methods || {})) instance[key] = value.bind(instance)
       for (const [key, value] of Object.entries(options.computed || {})) Object.defineProperty(instance, key, { get: value.bind(instance) })
       return instance
@@ -101,6 +103,7 @@ async function main () {
       const appeal = store.db.appeals.find(a => a.status === '办理中' && a.creatorId === store.currentUser.id && store.reportsForAppeal(a.id).length)
       const submittedIds = store.reportsForAppeal(appeal.id).map(r => r.id)
       assert.equal(store.deleteAppeal(appeal.id).ok, true)
+      assert.ok(!store.db.appeals.some(a => a.id === appeal.id))
       const daily = vm('Daily')
       daily.appliedAll.date = ''
       assert.ok(submittedIds.every(id => daily.allReports.some(r => r.id === id)))
@@ -167,7 +170,7 @@ async function main () {
       page.resetWorkFilter()
       const work = store.db.works[0]
       work.problem = '独特问题回归'
-      page.workFilters.keyword = '独特问题回归'
+      page.workFilters.problem = '独特问题回归'
       page.applyWorkFilter()
       assert.deepEqual(page.filteredWorks.map(w => w.id), [work.id])
     })
@@ -180,7 +183,7 @@ async function main () {
     })
     check('关系、诉求、建议结构化与重要文本筛选有效', () => {
       const relation = vm('Relations')
-      relation.filters.keyword = store.getPerson(store.db.relations[0].personId).employeeNo
+      relation.filters.employeeNo = store.getPerson(store.db.relations[0].personId).employeeNo
       relation.query()
       assert.ok(relation.filteredRelations.length)
       assert.ok(relation.filteredRelations.every(r => r.personId === store.db.relations[0].personId))
@@ -188,7 +191,7 @@ async function main () {
       const record = store.db.appeals.find(a => a.status === '办理中')
       record.plan = '推进计划唯一关键词'
       record.coDepts = ['D02']
-      appeal.filters.keyword = '推进计划唯一关键词'
+      appeal.filters.plan = '推进计划唯一关键词'
       appeal.filters.coDeptId = 'D02'
       appeal.query()
       assert.deepEqual(appeal.filteredAppeals.map(a => a.id), [record.id])
@@ -197,30 +200,38 @@ async function main () {
       const suggestion = store.createSuggestion(suggestionPayload())
       suggestion.desc = '问题描述唯一关键词'
       const page = vm('Suggestions')
-      page.filters.keyword = '问题描述唯一关键词'; page.query()
+      page.filters.desc = '问题描述唯一关键词'; page.query()
       assert.deepEqual(page.filteredSuggestions.map(s => s.id), [suggestion.id])
     })
-    check('总览日报历史日期不影响今日统计；跳转带正确页签和记录', () => {
+    check('总览统计联动台账，日期、条件与分页同步；历史日期不影响今日统计', () => {
       const page = vm('Overview')
       const before = JSON.stringify(page.stats)
-      page.ledgerTab = 'reports'
+      page.selectMetric('reports', '')
       const pending = store.db.dailyReports.find(r => !r.legacy && r.date === todayStr() && r.status !== '已提交')
       pending.attend = true
-      assert.equal(page.ledgerRows.find(r => r.id === pending.id).attendText, '未填')
+      assert.equal(page.ledgerRows.find(r => r.id === pending.id).attendText, '未填报')
       const historical = store.db.dailyReports.find(r => !r.legacy && r.date < todayStr())
-      page.ledgerDate = moment(historical.date)
+      page.ledgerFilters.date = moment(historical.date)
+      page.queryLedger()
       assert.ok(page.ledgerRows.length)
       assert.ok(page.ledgerRows.every(r => r.date === historical.date))
       assert.equal(JSON.stringify(page.stats), before)
       let target
       page.$router = { push: value => { target = value } }
-      page.goLedgerModule(historical)
+      page.openLedgerDetail(historical); page.jumpToModule()
       assert.deepEqual(target, { path: '/daily', query: { tab: 'all', date: historical.date, id: historical.id } })
-      page.ledgerTab = 'works'; page.goLedgerModule()
-      assert.deepEqual(target, { path: '/works', query: { tab: 'works' } })
-      page.ledgerTab = 'relations'; page.ledgerStatus = '启用'
-      assert.ok(page.ledgerRows.length)
-      assert.ok(page.ledgerRows.every(r => r.configStatus === '启用'))
+      for (const type of ['works', 'appeals', 'reports']) {
+        page.ledgerFilters.personName = '不匹配人员'
+        page.ledgerPagination.current = 3
+        page.selectMetric(type, '')
+        assert.equal(page.ledgerPagination.current, 1)
+        assert.equal(page.ledgerRows.length, page.stats[{ works: 'workTotal', appeals: 'appealTotal', reports: 'dueCount' }[type]])
+      }
+      for (const [type, status, count] of [['works', '落实中', 'workProcessing'], ['works', '销项审批中', 'workClosing'], ['works', '已销项', 'workClosed'], ['appeals', '办理中', 'processingCount'], ['appeals', '销项审批中', 'closingCount'], ['appeals', '已销项', 'closedCount'], ['reports', '已提交', 'submittedCount'], ['reports', '未填写', 'unfilledCount']]) {
+        page.selectMetric(type, status)
+        assert.equal(page.ledgerRows.length, page.stats[count])
+        assert.ok(page.ledgerRows.every(r => r.status === status))
+      }
     })
     check('日报、周报采用 V1.4 有效关系，周度明细可按人员项目文本筛选', () => {
       const expected = new Set(store.effectiveRelations().map(r => r.personId)).size
@@ -231,8 +242,9 @@ async function main () {
       const rows = weekly.absentRows.concat(weekly.serviceRows)
       assert.equal(new Set(rows.map(r => r.rowKey)).size, rows.length)
       const page = vm('Daily')
+      assert.ok(page.myReports.every(r => r.status === '已提交' ? r.attendText === (r.attend ? '是' : '否') : r.attendText === '未填报'))
       const row = rows[0]
-      page.weeklyFilters = { personId: row.personId, deptId: row.deptId, projectId: row.projectId, keyword: row.needs.slice(0, 6) }
+      page.weeklyFilters = { personName: row.personName, deptId: row.deptId, projectId: row.projectId, needs: row.needs.slice(0, 6) }
       page.applyWeeklyFilter()
       const filtered = page.filterWeeklyRows(rows)
       assert.ok(filtered.length)
@@ -261,6 +273,102 @@ async function main () {
       files.forEach(f => assert.equal(beforeUpload.call(instance, f, files), false))
       assert.equal(events.length, 1)
       assert.deepEqual(events[0].map(f => f.name), ['old.pdf', 'a.pdf', 'b.pdf'])
+    })
+    check('流程字典按真实节点映射，退回可重提不算作废', () => {
+      for (const [status, expected] of [['草稿', '待提交'], ['已退回', '待提交'], ['审核中', '处理中'], ['已生效', '已完成'], ['已作废', '已作废']]) assert.equal(sheetProcessStatus({ status }), expected)
+      for (const [status, expected] of [['已退回', '待提交'], ['待确认', '处理中'], ['已回复', '处理中'], ['已归档', '已完成'], ['已终止', '已作废']]) assert.equal(suggestionApprovalStatus({ status }), expected)
+      for (const [request, expected] of [[null, '待提交'], ['已退回', '待提交'], ['审批中', '处理中'], ['已通过', '已完成'], ['已作废', '已作废']]) {
+        assert.equal(closeApprovalStatus({ status: '落实中', closeRequest: request ? { status: request } : null }), expected)
+      }
+      const appeal = store.db.appeals.find(a => a.status === '办理中')
+      store.submitAppealClose(appeal.id, { reason: '办结', attachments: [] })
+      assert.equal(closeApprovalStatus(appeal), '处理中')
+      store.approveAppealClose(appeal.id, 'reject', '补齐')
+      assert.equal(closeApprovalStatus(appeal), '待提交')
+      store.submitAppealClose(appeal.id, { reason: '补齐', attachments: [] })
+      store.approveAppealClose(appeal.id, 'pass', '确认')
+      store.approveAppealClose(appeal.id, 'pass', '归档')
+      assert.equal(closeApprovalStatus(appeal), '已完成')
+      assert.equal(appeal.status, '已销项')
+    })
+    check('到期关系自动停用、历史只读，原日报及项目执行记录保留', () => {
+      const relation = store.db.relations.find(r => r.configStatus === '启用' && store.db.dailyReports.some(d => d.personId === r.personId && d.projectId === r.projectId && d.status === '已提交'))
+      store.db.relations.filter(r => r.personId === relation.personId && r.projectId === relation.projectId && r.id !== relation.id).forEach(r => { r.configStatus = '停用' })
+      const ids = store.db.dailyReports.filter(r => r.personId === relation.personId && r.projectId === relation.projectId && r.status === '已提交').map(r => r.id)
+      relation.endDate = moment().subtract(1, 'day').format('YYYY-MM-DD')
+      const historyCount = relation.history.length
+      store.syncRelationStatuses(); store.syncAllWorkProjectScopes(); store.refreshDailyWindow()
+      assert.equal(relation.configStatus, '停用')
+      assert.equal(relation.stoppedBy, '系统')
+      assert.ok(relation.stopReason.includes(relation.endDate))
+      assert.equal(relation.history.length, historyCount + 1)
+      store.syncRelationStatuses()
+      assert.equal(relation.history.length, historyCount + 1)
+      assert.ok(ids.every(id => store.db.dailyReports.some(r => r.id === id)))
+      assert.ok(!store.db.dailyReports.some(r => r.date >= todayStr() && r.personId === relation.personId && r.projectId === relation.projectId && r.status !== '已提交'))
+      assert.ok(store.db.works.filter(w => w.status === '落实中' && w.leadId === relation.personId).every(w => !store.currentWorkRows(w).some(r => r.projectId === relation.projectId)))
+      assert.equal(store.enableRelation(relation.id).ok, false)
+      const historical = store.db.relations.find(r => r.id !== relation.id)
+      const originalStatus = historical.status
+      historical.configStatus = '历史归档'; historical.archived = true
+      store.syncV14Data()
+      assert.equal(historical.configStatus, '停用')
+      assert.equal(historical.legacyStatus, originalStatus)
+      assert.equal(store.enableRelation(historical.id).ok, false)
+      assert.equal(store.updateRelation(historical.id, { role: '主责', startDate: todayStr() }).ok, false)
+    })
+    check('事项显示编号由梳理单与顺序生成，内部 ID 和执行引用不变', () => {
+      const work = store.db.works[0], id = work.id
+      assert.equal(workDisplayCode(work), `${work.sheetId}-${String(work.seq).padStart(2, '0')}`)
+      const page = vm('Works')
+      page.workFilters.code = workDisplayCode(work); page.applyWorkFilter()
+      assert.deepEqual(page.filteredWorks.map(w => w.id), [id])
+      page.openWorkDetail(page.filteredWorks[0])
+      assert.equal(page.workCurrent, work)
+      assert.ok(!page.workDrawerTitle.includes(id))
+      assert.ok(page.workDrawerTitle.includes(workDisplayCode(work)))
+    })
+    check('旧删除记录迁移后仅保留历史日报，重复兼容不丢内容或复用编号', () => {
+      const a = store.db.appeals.find(a => store.reportsForAppeal(a.id).length)
+      const ids = store.reportsForAppeal(a.id).map(r => r.id)
+      a.status = '已删除'
+      store.syncV14Data()
+      assert.ok(!store.db.appeals.some(r => r.id === a.id))
+      assert.ok(ids.every(id => store.db.dailyReports.some(r => r.id === id && r.appealDeleted)))
+      const before = JSON.stringify(store.db)
+      store.syncV14Data()
+      assert.equal(JSON.stringify(store.db), before)
+      assert.ok(listRows('reports', store, {}).filter(r => ids.includes(r.id)).length)
+      assert.ok(!store.reportsForDate(todayStr()).some(r => r.appealId === a.id))
+      const created = store.createAppeal({ ...a, title: '新诉求' })
+      assert.notEqual(created.id, a.id)
+      assert.ok(ids.every(id => store.db.dailyReports.find(r => r.id === id).appealId === a.id))
+    })
+    check('总览与五类业务列表共享全部列，人员及各文本字段可组合查询', () => {
+      const overview = vm('Overview')
+      for (const [type, name, key] of [['relations', 'Relations', 'columns'], ['works', 'Works', 'workColumns'], ['appeals', 'Appeals', 'columns'], ['reports', 'Daily', 'allColumns'], ['suggestions', 'Suggestions', 'columns']]) {
+        overview.ledgerTab = type; overview.onLedgerTabChange()
+        const own = vm(name)[key]
+        assert.deepEqual(overview.ledgerColumns.map(c => [c.title, c.dataIndex]), own.slice(0, -1).map(c => [c.title, c.dataIndex]))
+        assert.ok(!overview.ledgerColumns.some(c => c.title === '操作'))
+        assert.equal(overview.ledgerColumns[0].customRender('', {}, 0), 1)
+        overview.onLedgerTableChange({ current: 2, pageSize: 10 })
+        assert.equal(overview.ledgerColumns[0].customRender('', {}, 0), 11)
+      }
+      for (const type of ['relations', 'sheets', 'works', 'appeals', 'reports', 'suggestions', 'weekly']) {
+        const fields = listFilterFields(type, store)
+        assert.ok(fields.every(f => f.key !== 'keyword' && !f.label.includes('关键词')))
+        assert.ok(fields.filter(f => /人员|姓名|牵头人|承办人|填报人|提出人|负责人|项目经理$/.test(f.label)).every(f => f.kind === 'text'))
+        if (type === 'weekly') continue
+        const rows = listRows(type, store, {})
+        for (const field of fields.filter(f => f.kind === 'text')) {
+          const record = rows.find(r => r[field.key])
+          if (!record) continue
+          const value = String(record[field.key]).slice(0, 5)
+          assert.ok(listRows(type, store, { [field.key]: value }).some(r => r.id === record.id), type + '.' + field.key)
+          assert.equal(listRows(type, store, { [field.key]: '不存在的检索值' }).length, 0, type + '.' + field.key)
+        }
+      }
     })
     console.log(`\n${count} scenario groups passed.`)
   } finally {

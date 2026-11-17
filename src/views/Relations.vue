@@ -1,77 +1,6 @@
 <template>
   <div class="relations-page">
-    <div class="filter-bar">
-      <a-form layout="inline" class="filter-form">
-        <a-form-item label="服务人员">
-          <a-select
-            v-model="filters.personId"
-            placeholder="全部人员"
-            allow-clear
-            show-search
-            option-filter-prop="children"
-            style="width: 180px"
-          >
-            <a-select-option v-for="p in people" :key="p.id" :value="p.id">
-              {{ p.name }}（{{ deptName(p.deptId) }}）
-            </a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="服务项目">
-          <a-select v-model="filters.projectId" placeholder="全部项目" allow-clear show-search option-filter-prop="children" style="width: 190px">
-            <a-select-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="所属部门">
-          <a-select v-model="filters.deptId" placeholder="全部部门" allow-clear show-search option-filter-prop="children" style="width: 180px">
-            <a-select-option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="配置状态">
-          <a-select v-model="filters.status" placeholder="全部状态" allow-clear style="width: 130px">
-            <a-select-option v-for="s in statusOptions" :key="s" :value="s">{{ s }}</a-select-option>
-          </a-select>
-        </a-form-item>
-        <template v-if="expanded">
-          <a-form-item label="所属单位">
-            <a-select v-model="filters.company" placeholder="全部单位" allow-clear style="width: 150px">
-              <a-select-option v-for="c in companies" :key="c" :value="c">{{ c }}</a-select-option>
-            </a-select>
-          </a-form-item>
-          <a-form-item label="项目经理">
-            <a-select v-model="filters.manager" placeholder="全部经理" allow-clear show-search option-filter-prop="children" style="width: 130px">
-              <a-select-option v-for="m in projectManagers" :key="m" :value="m">{{ m }}</a-select-option>
-            </a-select>
-          </a-form-item>
-          <a-form-item label="当前有效">
-            <a-select v-model="filters.validity" placeholder="全部" allow-clear style="width: 140px">
-              <a-select-option v-for="s in ['当前有效', '未到生效日', '已过结束日', '已停用', '历史归档']" :key="s" :value="s">{{ s }}</a-select-option>
-            </a-select>
-          </a-form-item>
-          <a-form-item label="关键词">
-            <a-input v-model="filters.keyword" placeholder="关系编号 / 工号 / 联系方式 / 说明" allow-clear style="width: 270px" @pressEnter="query" />
-          </a-form-item>
-          <a-form-item label="帮扶角色">
-            <a-select v-model="filters.role" placeholder="全部角色" allow-clear style="width: 110px">
-              <a-select-option value="主责">主责</a-select-option>
-              <a-select-option value="协同">协同</a-select-option>
-            </a-select>
-          </a-form-item>
-          <a-form-item label="有效期">
-            <a-range-picker v-model="filters.dateRange" style="width: 240px" />
-          </a-form-item>
-        </template>
-        <a-form-item>
-          <div class="filter-actions">
-            <a-button type="primary" @click="query"><a-icon type="search" /> 查询</a-button>
-            <a-button @click="reset"><a-icon type="reload" /> 重置</a-button>
-            <span class="filter-toggle" @click="expanded = !expanded">
-              {{ expanded ? '收起' : '展开' }}
-              <a-icon :type="expanded ? 'up' : 'down'" />
-            </span>
-          </div>
-        </a-form-item>
-      </a-form>
-    </div>
+    <list-query type="relations" v-model="filters" @query="query" @reset="reset" />
 
     <div class="toolbar">
       <a-button type="primary" @click="openCreate"><a-icon type="plus" /> 新增帮扶关系</a-button>
@@ -85,23 +14,13 @@
       @change="onTableChange"
       row-key="id"
       size="middle"
-      :scroll="{ x: 1530 }"
+      :scroll="{ x: 2100 }"
     >
-      <div slot="period" slot-scope="text, record" class="period-cell">
-        <div>{{ record.startDate }}</div>
-        <div class="muted">至 {{ record.endDate || '长期' }}</div>
-      </div>
-      <div slot="status" slot-scope="text">
-        <status-tag :status="text" />
-      </div>
-      <div slot="validity" slot-scope="text, record" class="validity-cell">
-        <span :class="{ 'validity-current': relationValidity(record) === '当前有效' }">{{ relationValidity(record) }}</span>
-      </div>
       <div slot="action" slot-scope="text, record" class="table-actions">
         <a v-if="canEdit(record)" class="link-btn" @click="openEdit(record)">编辑</a>
         <a-divider v-if="canEdit(record) && record.configStatus !== '历史归档'" type="vertical" />
         <a v-if="record.configStatus === '启用'" class="link-btn" @click="openStop(record)">停用</a>
-        <a v-else-if="record.configStatus === '停用'" class="link-btn" @click="enableRelation(record)">启用</a>
+        <a v-else-if="record.configStatus === '停用' && !record.archived" class="link-btn" @click="enableRelation(record)">启用</a>
         <a-divider type="vertical" />
         <a class="link-btn" @click="openDetail(record)">详情</a>
       </div>
@@ -266,9 +185,10 @@
       @cancel="detailVisible = false"
     >
       <template v-if="current">
+        <div v-if="current.archived" class="alert-note warn">旧版历史关系已统一归入停用，原记录保留只读，不可重新启用。</div>
         <div class="detail-grid">
           <div class="detail-item"><span class="detail-label">关系编号</span><span class="detail-value">{{ current.id }}</span></div>
-          <div class="detail-item"><span class="detail-label">配置状态</span><span class="detail-value"><status-tag :status="current.configStatus" /></span></div>
+          <div class="detail-item"><span class="detail-label">配置状态</span><span class="detail-value"><status-tag :status="relationStatus(current)" /></span></div>
           <div class="detail-item"><span class="detail-label">当前有效性</span><span class="detail-value">{{ relationValidity(current) }}</span></div>
           <div class="detail-item"><span class="detail-label">总部服务人员</span><span class="detail-value">{{ current.personName }}</span></div>
           <div class="detail-item"><span class="detail-label">所属部门</span><span class="detail-value">{{ current.deptName }}</span></div>
@@ -283,7 +203,7 @@
       <template slot="footer">
         <a-button @click="detailVisible = false">关闭</a-button>
         <a-button v-if="current && current.configStatus === '启用'" danger @click="openStop(current)">停用</a-button>
-        <a-button v-if="current && current.configStatus === '停用'" type="primary" @click="enableRelation(current)">启用</a-button>
+        <a-button v-if="current && current.configStatus === '停用' && !current.archived" type="primary" @click="enableRelation(current)">启用</a-button>
         <a-button v-if="current && canEdit(current)" @click="openEdit(current)">编辑</a-button>
       </template>
     </a-modal>
@@ -294,18 +214,17 @@
 import moment from 'moment'
 import StatusTag from '../components/StatusTag.vue'
 import { fmtDate } from '../utils/date'
-import { matchesKeyword } from '../utils/listQuery'
-
-const emptyFilters = () => ({ personId: undefined, projectId: undefined, deptId: undefined, status: undefined, role: undefined, dateRange: null, company: undefined, manager: undefined, validity: undefined, keyword: '' })
+import ListQuery from '../components/ListQuery.vue'
+import { emptyListFilters, listRows, listColumns } from '../utils/businessLists'
+import { relationStatus } from '../utils/workflow'
 
 export default {
   name: 'RelationsView',
-  components: { StatusTag },
+  components: { StatusTag, ListQuery },
   data () {
     return {
-      expanded: false,
-      filters: emptyFilters(),
-      applied: emptyFilters(),
+      filters: emptyListFilters('relations', this.$store),
+      applied: emptyListFilters('relations', this.$store),
       pagination: {
         current: 1,
         pageSize: 10,
@@ -332,18 +251,7 @@ export default {
     projects () {
       return this.$store.db.projects
     },
-    departments () {
-      return this.$store.db.departments
-    },
-    statusOptions () {
-      return ['启用', '停用', '历史归档']
-    },
-    companies () {
-      return [...new Set(this.projects.map(p => p.company).filter(Boolean))]
-    },
-    projectManagers () {
-      return [...new Set(this.projects.map(p => p.manager).filter(Boolean))]
-    },
+
     formPerson () {
       return this.form.personId ? this.$store.getPerson(this.form.personId) : null
     },
@@ -351,45 +259,10 @@ export default {
       return this.form.projectId ? this.$store.getProject(this.form.projectId) : null
     },
     filteredRelations () {
-      const f = this.applied
-      return this.$store.db.relations.filter(r => {
-        if (f.personId && r.personId !== f.personId) return false
-        if (f.projectId && r.projectId !== f.projectId) return false
-        if (f.deptId && r.deptId !== f.deptId) return false
-        if (f.status && r.configStatus !== f.status) return false
-        if (f.role && r.role !== f.role) return false
-        const person = this.$store.getPerson(r.personId) || {}
-        const project = this.$store.getProject(r.projectId) || {}
-        if (f.company && project.company !== f.company) return false
-        if (f.manager && r.projectManager !== f.manager) return false
-        if (f.validity && this.relationValidity(r) !== f.validity) return false
-        if (!matchesKeyword(f.keyword, [r.id, person.employeeNo, person.phone, project.managerPhone, r.personName, r.projectName, r.remark])) return false
-        if (f.dateRange && f.dateRange.length === 2) {
-          const start = fmtDate(f.dateRange[0])
-          const end = fmtDate(f.dateRange[1])
-          const relEnd = r.endDate || '9999-12-31'
-          if (!(start <= relEnd && end >= r.startDate)) return false
-        }
-        return true
-      })
+      return listRows('relations', this.$store, this.applied)
     },
     columns () {
-      return [
-        { title: '序号', width: 54, align: 'center', customRender: (text, record, index) => index + 1 },
-        { title: '关系编号', dataIndex: 'id', width: 112 },
-        { title: '总部服务人员', dataIndex: 'personName', width: 92 },
-        { title: '工号', dataIndex: 'personId', key: 'employeeNo', width: 86, customRender: id => this.personEmployeeNo(id) },
-        { title: '所属部门', dataIndex: 'deptName', width: 150 },
-        { title: '帮扶项目', dataIndex: 'projectName', width: 175 },
-        { title: '所属单位', dataIndex: 'projectId', key: 'company', width: 110, customRender: id => this.projectCompany(id) },
-        { title: '项目经理', dataIndex: 'projectManager', width: 82 },
-        { title: '项目经理联系方式', dataIndex: 'projectId', key: 'managerPhone', width: 128, customRender: id => this.projectManagerPhone(id) },
-        { title: '帮扶角色', dataIndex: 'role', width: 70, align: 'center' },
-        { title: '有效期', dataIndex: 'startDate', width: 132, scopedSlots: { customRender: 'period' } },
-        { title: '配置状态', dataIndex: 'configStatus', width: 90, scopedSlots: { customRender: 'status' } },
-        { title: '当前有效', dataIndex: 'configStatus', key: 'validity', width: 96, scopedSlots: { customRender: 'validity' } },
-        { title: '操作', width: 150, scopedSlots: { customRender: 'action' } }
-      ]
+      return listColumns('relations', this, this.pagination).concat({ title: '操作', width: 170, scopedSlots: { customRender: 'action' } })
     },
     invalidateAppealCount () {
       if (!this.invalidateRecord) return 0
@@ -411,6 +284,7 @@ export default {
     '$route.query': 'applyRouteQuery'
   },
   methods: {
+    relationStatus,
     applyRouteQuery () {
       const record = this.$store.db.relations.find(r => r.id === this.$route.query.id)
       if (record) this.openDetail(record)
@@ -422,18 +296,7 @@ export default {
       const dept = this.$store.getDept(id)
       return dept ? dept.name : ''
     },
-    personEmployeeNo (id) {
-      const person = this.$store.getPerson(id)
-      return person ? person.employeeNo || '—' : '—'
-    },
-    projectCompany (id) {
-      const project = this.$store.getProject(id)
-      return project ? project.company || '—' : '—'
-    },
-    projectManagerPhone (id) {
-      const project = this.$store.getProject(id)
-      return project ? project.managerPhone || '—' : '—'
-    },
+
     onPersonChange () {},
     onProjectChange () {},
     query () {
@@ -441,7 +304,7 @@ export default {
       this.pagination = { ...this.pagination, current: 1 }
     },
     reset () {
-      this.filters = emptyFilters()
+      this.filters = emptyListFilters('relations', this.$store)
       this.query()
     },
     openCreate () {
@@ -524,7 +387,7 @@ export default {
     },
     openStop (record) {
       this.detailVisible = false
-      this.invalidateRecord = record
+      this.invalidateRecord = this.$store.db.relations.find(r => r.id === record.id)
       this.invalidateReason = ''
       this.invalidateVisible = true
     },
@@ -551,7 +414,7 @@ export default {
       })
     },
     openDetail (record) {
-      this.current = record
+      this.current = this.$store.db.relations.find(r => r.id === record.id)
       this.detailVisible = true
     }
   }

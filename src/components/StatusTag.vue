@@ -4,6 +4,10 @@
 
 <script>
 const COLOR_MAP = {
+  待提交: '',
+  处理中: 'blue',
+  已完成: 'green',
+  已作废: '',
   草稿: '',
   待审批: 'orange',
   已生效: 'green',

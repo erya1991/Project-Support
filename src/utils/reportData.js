@@ -130,7 +130,7 @@ function orderReports (db, reports) {
 
 export function buildDailyReport (db, date) {
   const deleted = new Set(db.appeals.filter(a => a.status === '已删除').map(a => a.id))
-  const all = db.dailyReports.filter(r => !r.legacy && r.date === date && !deleted.has(r.appealId))
+  const all = db.dailyReports.filter(r => !r.legacy && !r.appealDeleted && r.date === date && !deleted.has(r.appealId))
   const submitted = all.filter(r => r.status === '已提交')
   const absentRows = orderReports(db, submitted.filter(r => r.attend === false)).map(r => ({
     rowKey: r.id,
@@ -195,7 +195,7 @@ export function buildDailyReport (db, date) {
 
 export function buildWeeklyReport (db, start, end) {
   const deleted = new Set(db.appeals.filter(a => a.status === '已删除').map(a => a.id))
-  const reports = db.dailyReports.filter(r => !r.legacy && r.date >= start && r.date <= end && !deleted.has(r.appealId) && r.status === '已提交')
+  const reports = db.dailyReports.filter(r => !r.legacy && !r.appealDeleted && r.date >= start && r.date <= end && !deleted.has(r.appealId) && r.status === '已提交')
   const absentRows = orderReports(db, reports.filter(r => r.attend === false)).map(r => ({
     rowKey: r.id,
     personId: r.personId,
