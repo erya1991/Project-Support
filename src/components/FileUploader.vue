@@ -3,7 +3,7 @@
     <div v-if="value && value.length" class="file-list">
       <div v-for="(file, index) in value" :key="index" class="file-chip">
         <a-icon type="paper-clip" />
-        <span class="file-name" :title="file.name">{{ file.name }}</span>
+        <a-tooltip :title="file.name"><span class="file-name">{{ file.name }}</span></a-tooltip>
         <a-icon v-if="!readonly" type="close" class="file-remove" @click="remove(index)" />
       </div>
     </div>

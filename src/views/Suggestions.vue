@@ -7,12 +7,11 @@
       <span class="muted toolbar-tip">部门负责人逐人确认“改/不改”，全部确认后由企划部填写归档意见并归档。</span>
     </div>
 
-    <a-table
-      :columns="columns"
+    <a-table table-layout="fixed"
+      :columns="fitColumns(columns)"
       :data-source="filteredSuggestions"
       :pagination="pagination"
       @change="onTableChange"
-      :scroll="{ x: 2100 }"
       row-key="id"
       size="middle"
     >
@@ -257,7 +256,7 @@ import StatusTag from '../components/StatusTag.vue'
 import FileUploader from '../components/FileUploader.vue'
 import { fmtDate } from '../utils/date'
 import ListQuery from '../components/ListQuery.vue'
-import { emptyListFilters, listRows, listColumns } from '../utils/businessLists'
+import { emptyListFilters, listRows, listColumns, fitColumns } from '../utils/businessLists'
 import { suggestionApprovalStatus } from '../utils/workflow'
 
 export default {
@@ -307,7 +306,7 @@ export default {
       return this.flowRecord.nodes.find(n => n.result === '待处理') || null
     },
     columns () {
-      return listColumns('suggestions', this, this.pagination).concat({ title: '操作', width: 240, scopedSlots: { customRender: 'action' } })
+      return listColumns('suggestions', this, this.pagination).concat({ title: '操作', width: 135, scopedSlots: { customRender: 'action' } })
     }
   },
   mounted () {
@@ -315,6 +314,7 @@ export default {
   },
   watch: { '$route.query': 'applyRouteQuery' },
   methods: {
+    fitColumns (columns) { return fitColumns(columns, this.$createElement) },
     suggestionApprovalStatus,
     applyRouteQuery () {
       const record = this.$store.db.suggestions.find(s => s.id === this.$route.query.id)

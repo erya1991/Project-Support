@@ -7,14 +7,13 @@
       <span class="toolbar-tip">每次配置一人一项目，保存后直接启用；停用和重新启用均不需要审批。</span>
     </div>
 
-    <a-table
-      :columns="columns"
+    <a-table table-layout="fixed"
+      :columns="fitColumns(columns)"
       :data-source="filteredRelations"
       :pagination="pagination"
       @change="onTableChange"
       row-key="id"
       size="middle"
-      :scroll="{ x: 2100 }"
     >
       <div slot="action" slot-scope="text, record" class="table-actions">
         <a v-if="canEdit(record)" class="link-btn" @click="openEdit(record)">编辑</a>
@@ -215,7 +214,7 @@ import moment from 'moment'
 import StatusTag from '../components/StatusTag.vue'
 import { fmtDate } from '../utils/date'
 import ListQuery from '../components/ListQuery.vue'
-import { emptyListFilters, listRows, listColumns } from '../utils/businessLists'
+import { emptyListFilters, listRows, listColumns, fitColumns } from '../utils/businessLists'
 import { relationStatus } from '../utils/workflow'
 
 export default {
@@ -262,7 +261,7 @@ export default {
       return listRows('relations', this.$store, this.applied)
     },
     columns () {
-      return listColumns('relations', this, this.pagination).concat({ title: '操作', width: 170, scopedSlots: { customRender: 'action' } })
+      return listColumns('relations', this, this.pagination).concat({ title: '操作', width: 120, scopedSlots: { customRender: 'action' } })
     },
     invalidateAppealCount () {
       if (!this.invalidateRecord) return 0
@@ -284,6 +283,7 @@ export default {
     '$route.query': 'applyRouteQuery'
   },
   methods: {
+    fitColumns (columns) { return fitColumns(columns, this.$createElement) },
     relationStatus,
     applyRouteQuery () {
       const record = this.$store.db.relations.find(r => r.id === this.$route.query.id)

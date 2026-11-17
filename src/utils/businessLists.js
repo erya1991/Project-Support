@@ -119,24 +119,41 @@ export function listRows (type, store, filters = {}) {
   return filterListRows(type, rows, filters, store)
 }
 
-// [列名, 展示字段, 宽度, 格式]；业务页在这些列之后追加操作列。
+// [列名, 展示字段, 相对宽度, 格式]；业务页追加操作列后统一适配容器。
 const columnSpecs = {
-  relations: [['关系编号', 'id', 118], ['总部服务人员', 'personName', 100], ['工号', 'employeeNo', 94], ['所属部门', 'deptName', 150],
-    ['帮扶项目', 'projectName', 180], ['所属单位', 'company', 118], ['项目经理', 'projectManager', 90], ['项目经理联系方式', 'managerPhone', 135],
-    ['帮扶角色', 'role', 80], ['有效期', 'period', 210], ['配置状态', 'configStatus', 90, 'status'], ['当前有效', 'validity', 110]],
-  sheets: [['梳理单编号', 'id', 120], ['体系', 'system', 75], ['归属部门', 'deptName', 160], ['重点工作数', 'itemCount', 100],
-    ['填报人', 'creatorName', 90], ['填报日期', 'createDate', 110], ['创建说明', 'remark', 300], ['流程状态', 'processStatus', 100, 'status']],
-  works: [['事项编号', 'code', 155], ['体系', 'system', 75], ['部门', 'deptName', 150], ['重点工作', 'title', 270], ['牵头人', 'leadName', 90],
-    ['完成时限', 'dueDate', 115], ['项目落实进展', 'progressText', 200], ['工作状态', 'status', 105, 'status'], ['销项审批状态', 'closeStatus', 120, 'status']],
-  appeals: [['诉求编号', 'id', 120], ['诉求事项', 'title', 250], ['所属项目', 'projectName', 180], ['主责部门', 'deptName', 150],
-    ['承办人', 'personName', 90], ['推进计划', 'plan', 240], ['完成时限', 'dueDate', 120, 'due'], ['最新进展', 'latestProgress', 260, 'latest'],
-    ['办理状态', 'status', 105, 'status'], ['销项审批状态', 'closeStatus', 120, 'status']],
-  reports: [['日期', 'date', 110], ['姓名', 'personName', 85], ['部门', 'deptName', 150], ['项目', 'projectName', 170],
-    ['对应诉求事项', 'appealTitle', 250, 'appeal'], ['填报状态', 'status', 100, 'status'], ['冻结状态', 'frozenText', 100, 'status'],
-    ['到岗', 'attendText', 75], ['当日工作开展情况', 'workContent', 280], ['今日项目反馈需协调解决问题', 'newIssues', 260], ['提交时间', 'submitTime', 155]],
-  suggestions: [['建议编号', 'id', 115], ['建议事项', 'title', 240], ['涉及制度/流程', 'flow', 200], ['提出人/部门', 'proposerText', 150],
-    ['主责部门', 'deptName', 150], ['确认负责人', 'confirmerNames', 140], ['回复意见', 'replyText', 300], ['提出时间', 'createdAt', 115, 'date'],
-    ['审批状态', 'approvalStatus', 105, 'status']]
+  relations: [['关系编号', 'id', 98], ['总部服务人员', 'personName', 72], ['工号', 'employeeNo', 78], ['所属部门', 'deptName', 100],
+    ['帮扶项目', 'projectName', 120], ['所属单位', 'company', 95], ['项目经理', 'projectManager', 65],
+    ['帮扶角色', 'role', 60], ['有效期', 'period', 130], ['配置状态', 'configStatus', 80, 'status'], ['当前有效', 'validity', 85]],
+  sheets: [['梳理单编号', 'id', 108], ['体系', 'system', 60], ['归属部门', 'deptName', 130], ['重点工作数', 'itemCount', 80],
+    ['填报人', 'creatorName', 80], ['填报日期', 'createDate', 100], ['创建说明', 'remark', 240], ['流程状态', 'processStatus', 100, 'status']],
+  works: [['事项编号', 'code', 125], ['体系', 'system', 52], ['部门', 'deptName', 96], ['重点工作', 'title', 150], ['牵头人', 'leadName', 65],
+    ['完成时限', 'dueDate', 88], ['项目落实进展', 'progressText', 125], ['工作状态', 'status', 96, 'status'], ['销项审批状态', 'closeStatus', 94, 'status']],
+  appeals: [['诉求编号', 'id', 98], ['诉求事项', 'title', 140], ['所属项目', 'projectName', 110], ['主责部门', 'deptName', 100],
+    ['承办人', 'personName', 62], ['推进计划', 'plan', 125], ['完成时限', 'dueDate', 88, 'due'], ['最新进展', 'latestProgress', 130, 'latest'],
+    ['办理状态', 'status', 96, 'status'], ['销项审批状态', 'closeStatus', 94, 'status']],
+  reports: [['日期', 'date', 85], ['姓名', 'personName', 55], ['部门', 'deptName', 85], ['项目', 'projectName', 100],
+    ['对应诉求事项', 'appealTitle', 120, 'appeal'], ['填报状态', 'status', 74, 'status'], ['冻结状态', 'frozenText', 70, 'status'],
+    ['到岗', 'attendText', 56], ['当日工作开展情况', 'workContent', 140], ['今日项目反馈需协调解决问题', 'newIssues', 140], ['提交时间', 'submitTime', 112]],
+  suggestions: [['建议编号', 'id', 100], ['建议事项', 'title', 150], ['涉及制度/流程', 'flow', 115], ['提出人/部门', 'proposerText', 100],
+    ['主责部门', 'deptName', 90], ['确认负责人', 'confirmerNames', 90], ['回复意见', 'replyText', 190], ['提出时间', 'createdAt', 85, 'date'],
+    ['审批状态', 'approvalStatus', 85, 'status']]
+}
+
+// 所有业务表格使用百分比列宽，包括追加的操作列及弹窗中的明细列。
+export function fitColumns (columns, h) {
+  const total = columns.reduce((sum, column) => sum + (column.width || 100), 0)
+  return columns.map(column => {
+    const fitted = { ...column, width: `${(column.width || 100) / total * 100}%` }
+    if (!column.scopedSlots && column.dataIndex) {
+      fitted.customRender = (value, row, index) => {
+        const content = column.customRender ? column.customRender(value, row, index) : value
+        if (content != null && typeof content === 'object') return content
+        const text = content == null || content === '' ? '—' : String(content)
+        return h('a-tooltip', { props: { title: text } }, [h('div', { class: 'business-cell' }, text)])
+      }
+    }
+    return fitted
+  })
 }
 
 export function listColumns (type, vm, pagination, detail) {
@@ -146,16 +163,20 @@ export function listColumns (type, vm, pagination, detail) {
     title, dataIndex, key: dataIndex, width,
     customRender: (value, row) => {
       const content = format === 'date' ? (value || '').slice(0, 10) : (value == null || value === '' ? '—' : String(value))
-      if (detail && dataIndex === linkKey) return h('a', { on: { click: () => detail(row) } }, content)
+      const link = handler => h('a-tooltip', { props: { title: content } }, [h('a', { class: 'business-cell', on: { click: handler } }, content)])
+      if (detail && dataIndex === linkKey) return link(() => detail(row))
       if (format === 'status') return h(StatusTag, { props: { status: value } })
       if (format === 'appeal' && !detail && vm.openAppealDetail && vm.$store.db.appeals.some(a => a.id === row.appealId)) {
-        return h('a', { on: { click: () => vm.openAppealDetail(row.appealId) } }, content)
+        return link(() => vm.openAppealDetail(row.appealId))
       }
-      const children = [h('div', { class: 'business-cell' }, content)]
+      const cellContent = dataIndex === 'period'
+        ? [h('span', { class: 'cell-date' }, row.startDate), ' 至 ', h('span', { class: 'cell-date' }, row.endDate || '长期')]
+        : content
+      const children = [h('div', { class: 'business-cell' }, cellContent)]
       if (format === 'latest' && row.latestReportDate) children.push(h('div', { class: 'muted cell-sub' }, row.latestReportDate))
       if (format === 'due' && row.overdueText === '是') children.push(h('a-tag', { props: { color: 'red' } }, '超期'))
       return h('a-tooltip', { props: { title: content } }, [h('div', children)])
     }
   }))
-  return [{ title: '序号', key: 'sequence', width: 60, align: 'center', customRender: (t, r, i) => ((pagination.current || 1) - 1) * pagination.pageSize + i + 1 }, ...columns]
+  return [{ title: '序号', key: 'sequence', width: 44, align: 'center', customRender: (t, r, i) => ((pagination.current || 1) - 1) * pagination.pageSize + i + 1 }, ...columns]
 }

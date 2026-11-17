@@ -11,14 +11,13 @@
             <span class="muted toolbar-tip">一张梳理单只归属一个总部部门，可一次批量新增多条重点工作并整单提交创建审批。</span>
           </div>
 
-          <a-table
-            :columns="sheetColumns"
+          <a-table table-layout="fixed"
+            :columns="fitColumns(sheetColumns)"
             :data-source="filteredSheets"
             :pagination="sheetPagination"
             @change="onSheetTableChange"
             row-key="id"
             size="middle"
-            :scroll="{ x: 1900 }"
           >
             <div slot="action" slot-scope="text, record" class="table-actions">
               <template v-if="record.status === '草稿' || record.status === '已退回'">
@@ -48,14 +47,13 @@
         <div class="tab-body">
           <list-query type="works" v-model="workFilters" @query="applyWorkFilter" @reset="resetWorkFilter" />
 
-          <a-table
-            :columns="workColumns"
+          <a-table table-layout="fixed"
+            :columns="fitColumns(workColumns)"
             :data-source="filteredWorks"
             :pagination="workPagination"
             @change="onWorkTableChange"
             row-key="id"
             size="middle"
-            :scroll="{ x: 1900 }"
           >
             <div slot="action" slot-scope="text, record" class="table-actions">
               <template v-if="record.status === '落实中'">
@@ -134,14 +132,13 @@
         <span class="items-title">重点工作明细 <span class="muted">（{{ sheetForm.items.length }} 条）</span></span>
       </div>
 
-      <a-table
-        :columns="sheetItemColumns"
+      <a-table table-layout="fixed"
+        :columns="fitColumns(sheetItemColumns)"
         :data-source="sheetForm.items"
         :pagination="false"
         size="small"
         bordered
         row-key="_key"
-        :scroll="{ x: 1900 }"
       >
         <div slot="titleCell" slot-scope="text, record">
           <a-textarea v-model="record.title" :rows="2" :max-length="200" placeholder="请输入单条重点工作内容" />
@@ -206,13 +203,12 @@
         </div>
         <div class="drawer-section" style="margin-top:16px;">
           <div class="drawer-section-title">重点工作明细（{{ sheetCurrent.items.length }} 条）</div>
-          <a-table
-            :columns="sheetDetailColumns"
+          <a-table table-layout="fixed"
+            :columns="fitColumns(sheetDetailColumns)"
             :data-source="sheetCurrent.items"
             :pagination="false"
             size="small"
             row-key="id"
-            :scroll="{ x: 1050 }"
           >
             <div slot="statusCol" slot-scope="text, record">
               <status-tag :status="sheetItemStatus(record)" />
@@ -278,18 +274,17 @@
               <div class="subtable-head">
                 <span class="items-title">项目落实情况 <span class="muted">（{{ workProgressText(workCurrent) }}）</span></span>
               </div>
-              <a-table
+              <a-table table-layout="fixed"
                 v-if="projectRows.length"
-                :columns="projectExecColumns"
+                :columns="fitColumns(projectExecColumns)"
                 :data-source="projectRows"
                 :pagination="false"
                 size="small"
                 bordered
                 row-key="_key"
-                :scroll="{ x: 960 }"
               >
                 <div slot="projectCell" slot-scope="text, record">
-                  <span class="project-readonly">{{ record.projectName }}</span>
+                  <a-tooltip :title="record.projectName"><span class="business-cell">{{ record.projectName }}</span></a-tooltip>
                   <status-tag v-if="record.needsConfirm" status="需重新确认" />
                 </div>
                 <div slot="contentCell" slot-scope="text, record">
@@ -318,22 +313,17 @@
             </div>
 
             <div v-if="currentProjectRows.length" class="project-view">
-              <a-table
-                :columns="projectViewColumns"
+              <a-table table-layout="fixed"
+                :columns="fitColumns(projectViewColumns)"
                 :data-source="currentProjectRows"
                 :pagination="false"
                 size="small"
                 bordered
                 row-key="id"
-                :scroll="{ x: 860 }"
               >
-                <div slot="viewContent" slot-scope="text, record" class="view-content">
-                  {{ execDisplay(record) }}
-                </div>
+                <div slot="viewContent" slot-scope="text, record"><a-tooltip :title="execDisplay(record)"><div class="business-cell">{{ execDisplay(record) }}</div></a-tooltip></div>
                 <div slot="viewFiles" slot-scope="text, record">
-                  <span v-for="(f, i) in record.attachments" :key="i" class="file-chip">
-                    <a-icon type="paper-clip" /> {{ f.name }}
-                  </span>
+                  <a-tooltip v-for="(f, i) in record.attachments" :key="i" :title="f.name"><span class="file-chip business-cell"><a-icon type="paper-clip" /> {{ f.name }}</span></a-tooltip>
                   <span v-if="!record.attachments || !record.attachments.length" class="muted">—</span>
                 </div>
               </a-table>
@@ -342,39 +332,24 @@
 
             <div v-if="historyProjectRows.length" class="history-projects">
               <div class="drawer-section-title" style="margin-top:12px;">历史项目记录</div>
-              <a-table
-                :columns="historyColumns"
+              <a-table table-layout="fixed"
+                :columns="fitColumns(historyColumns)"
                 :data-source="historyProjectRows"
                 :pagination="false"
                 size="small"
                 row-key="id"
-                :scroll="{ x: 760 }"
               >
-                <div slot="historyContent" slot-scope="text" class="view-content">{{ text || '—' }}</div>
-                <div slot="historyReason" slot-scope="text" class="muted">{{ text || '—' }}</div>
+                <div slot="historyContent" slot-scope="text"><a-tooltip :title="text"><div class="business-cell">{{ text || '—' }}</div></a-tooltip></div>
+                <div slot="historyReason" slot-scope="text"><a-tooltip :title="text"><div class="business-cell">{{ text || '—' }}</div></a-tooltip></div>
               </a-table>
             </div>
           </template>
         </div>
 
         <div class="drawer-section">
-          <div class="drawer-section-title">
-            销项申请
-            <span class="extra" v-if="workCurrent.closeRequest">{{ workCurrent.closeRequest.id }}</span>
-          </div>
+          <div class="drawer-section-title">销项申请</div>
 
           <template v-if="workDrawerMode === 'close' && workCurrent.status === '落实中'">
-            <div class="alert-note warn" style="margin-bottom:12px;">
-              <a-icon type="exclamation-circle" /> 销项将包含本事项总体执行情况及全部当前应填项目，请填写办结说明并上传佐证材料。
-            </div>
-            <div class="close-snapshot">
-              <div class="overall-label">总体执行情况</div>
-              <div class="overall-content">{{ workCurrent.overallContent }}</div>
-              <div class="close-projects">
-                当前应填项目：{{ currentProjectRows.length ? currentProjectRows.map(e => e.projectName).join('、') : '未配置有效帮扶项目' }}
-              </div>
-              <div class="close-projects">项目落实进展：{{ workProgressText(workCurrent) }}</div>
-            </div>
             <div class="exec-field">
               <div class="form-label">办结说明 <span class="danger-text">*</span></div>
               <a-textarea v-model="closeReason" :rows="4" :max-length="500" placeholder="说明工作达到的结果、完成情况" />
@@ -387,10 +362,6 @@
 
           <template v-else-if="workCurrent.closeRequest">
             <div class="detail-grid">
-              <div class="detail-item"><span class="detail-label">申请编号</span><span class="detail-value">{{ workCurrent.closeRequest.id }}</span></div>
-              <div class="detail-item"><span class="detail-label">销项审批状态</span><span class="detail-value"><status-tag :status="closeApprovalStatus(workCurrent)" /></span></div>
-              <div class="detail-item full"><span class="detail-label">总体执行情况</span><span class="detail-value">{{ workCurrent.closeRequest.overallContent || workCurrent.overallContent }}</span></div>
-              <div class="detail-item full"><span class="detail-label">包含项目</span><span class="detail-value">{{ (workCurrent.closeRequest.projectExecutions || workCurrent.projectExecutions || []).map(e => e.projectName).join('、') || '无关联项目' }}</span></div>
               <div class="detail-item full"><span class="detail-label">办结说明</span><span class="detail-value">{{ workCurrent.closeRequest.reason }}</span></div>
               <div class="detail-item full">
                 <span class="detail-label">佐证附件</span>
@@ -458,7 +429,7 @@ import ApprovalModal from '../components/ApprovalModal.vue'
 import FileUploader from '../components/FileUploader.vue'
 import { todayStr, fmtDate } from '../utils/date'
 import ListQuery from '../components/ListQuery.vue'
-import { emptyListFilters, listRows, listColumns } from '../utils/businessLists'
+import { emptyListFilters, listRows, listColumns, fitColumns } from '../utils/businessLists'
 import { sheetProcessStatus, closeApprovalStatus, workDisplayCode } from '../utils/workflow'
 
 function newSheetItem (deptId) {
@@ -526,13 +497,13 @@ export default {
       return listRows('sheets', this.$store, this.appliedSheet)
     },
     sheetColumns () {
-      return listColumns('sheets', this, this.sheetPagination).concat({ title: '操作', width: 230, scopedSlots: { customRender: 'action' } })
+      return listColumns('sheets', this, this.sheetPagination).concat({ title: '操作', width: 140, scopedSlots: { customRender: 'action' } })
     },
     filteredWorks () {
       return listRows('works', this.$store, this.appliedWork)
     },
     workColumns () {
-      return listColumns('works', this, this.workPagination).concat({ title: '操作', width: 230, scopedSlots: { customRender: 'action' } })
+      return listColumns('works', this, this.workPagination).concat({ title: '操作', width: 140, scopedSlots: { customRender: 'action' } })
     },
     sheetDetailColumns () {
       return [
@@ -621,6 +592,7 @@ export default {
     }
   },
   methods: {
+    fitColumns (columns) { return fitColumns(columns, this.$createElement) },
     sheetProcessStatus, closeApprovalStatus, workDisplayCode,
     onSheetTableChange ({ current, pageSize }) {
       Object.assign(this.sheetPagination, { current, pageSize })
@@ -854,6 +826,7 @@ export default {
       this.workDrawerVisible = true
     },
     openExec (work) {
+      work = this.$store.workById(work.id)
       this.workCurrent = work
       this.workDrawerMode = 'exec'
       this.$store.syncWorkProjectScope(work)
@@ -861,6 +834,7 @@ export default {
       this.workDrawerVisible = true
     },
     openClose (work) {
+      work = this.$store.workById(work.id)
       this.workCurrent = work
       if (!work.overallContent || !work.overallContent.trim()) {
         this.$message.warning('请先填写总体执行情况，再申请销项')
@@ -1024,22 +998,6 @@ export default {
 .project-view {
   margin-top: 12px;
 }
-.view-content {
-  white-space: pre-wrap;
-  line-height: 18px;
-}
-.close-snapshot {
-  background: #fbfdff;
-  border: 1px solid #e8f1fa;
-  border-radius: 3px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-}
-.close-projects {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #5b7189;
-}
 .progress-scope {
   font-size: 12px;
   color: #3c5a78;
@@ -1087,7 +1045,8 @@ export default {
 .row-actions {
   display: flex;
   align-items: center;
-  white-space: nowrap;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 .work-head {
   display: flex;

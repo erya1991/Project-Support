@@ -26,7 +26,7 @@
             <a-icon type="clock-circle" /> 所选日期尚未到达，可提前查看应填任务，但需当日填报。
           </div>
 
-          <a-table :columns="mineColumns" :data-source="myReports" :pagination="minePagination" @change="onMineTableChange" row-key="id" size="middle" :scroll="{ x: 1200 }">
+          <a-table table-layout="fixed" :columns="fitColumns(mineColumns)" :data-source="myReports" :pagination="minePagination" @change="onMineTableChange" row-key="id" size="middle">
             <div slot="mineStatus" slot-scope="text, record"><status-tag :status="text" /> <status-tag v-if="record.frozen" status="已冻结" /></div>
             <div slot="mineAction" slot-scope="text, report" class="table-actions">
               <a v-if="!canFillReport(report)" @click="openReport(report, 'view')">查看</a>
@@ -54,14 +54,13 @@
             <span>未填写 <b class="red">{{ allStats.unfilled }}</b></span>
           </div>
 
-          <a-table
-            :columns="allColumns"
+          <a-table table-layout="fixed"
+            :columns="fitColumns(allColumns)"
             :data-source="allReports"
             :pagination="allPagination"
             @change="onAllTableChange"
             row-key="id"
             size="middle"
-            :scroll="{ x: 2100 }"
           >
             <div slot="action" slot-scope="text, record" class="table-actions">
               <a class="link-btn" @click="openReport(record, 'view')">查看日报</a>
@@ -92,31 +91,29 @@
           <list-query type="weekly" v-model="weeklyFilters" @query="applyWeeklyFilter" @reset="resetWeeklyFilter" />
 
           <a-tabs v-model="weeklyTab" type="card" class="weekly-subtabs"><a-tab-pane key="absent" tab="未到岗人员情况">
-          <a-table
-            :columns="weeklyAbsentColumns"
+          <a-table table-layout="fixed"
+            :columns="fitColumns(weeklyAbsentColumns)"
             :data-source="weeklyAbsentRows"
             :pagination="false"
             row-key="rowKey"
             size="small"
-            :scroll="{ x: 1250 }"
           >
-            <div slot="needs" slot-scope="text" class="needs-cell" :title="text">{{ text }}</div>
-            <div slot="reason" slot-scope="text" class="needs-cell" :title="text">{{ text }}</div>
+            <div slot="needs" slot-scope="text"><a-tooltip :title="text"><div class="business-cell">{{ text }}</div></a-tooltip></div>
+            <div slot="reason" slot-scope="text"><a-tooltip :title="text"><div class="business-cell">{{ text }}</div></a-tooltip></div>
           </a-table>
           <div v-if="!weeklyAbsentRows.length" class="empty-hint">当前条件下暂无未到岗记录</div>
 
           </a-tab-pane><a-tab-pane key="attended" tab="已到岗人员情况">
-          <a-table
-            :columns="weeklyServiceColumns"
+          <a-table table-layout="fixed"
+            :columns="fitColumns(weeklyServiceColumns)"
             :data-source="weeklyServiceRows"
             :pagination="false"
             row-key="rowKey"
             size="small"
-            :scroll="{ x: 1250 }"
           >
-            <div slot="needs" slot-scope="text" class="needs-cell" :title="text">{{ text }}</div>
-            <div slot="work" slot-scope="text" class="needs-cell" :title="text">{{ text }}</div>
-            <div slot="issues" slot-scope="text" class="needs-cell" :title="text">{{ text }}</div>
+            <div slot="needs" slot-scope="text"><a-tooltip :title="text"><div class="business-cell">{{ text }}</div></a-tooltip></div>
+            <div slot="work" slot-scope="text"><a-tooltip :title="text"><div class="business-cell">{{ text }}</div></a-tooltip></div>
+            <div slot="issues" slot-scope="text"><a-tooltip :title="text"><div class="business-cell">{{ text }}</div></a-tooltip></div>
           </a-table>
           </a-tab-pane></a-tabs>
           <div class="weekly-foot muted">周度汇总及导出按完整自然周统计；查询条件筛选下方明细，到岗人数按人员与日期去重。</div>
@@ -224,16 +221,15 @@
         </div>
         <div class="drawer-section" style="margin-top:14px;">
           <div class="drawer-section-title">办理日报</div>
-          <a-table
-            :columns="appealReportColumns"
+          <a-table table-layout="fixed"
+            :columns="fitColumns(appealReportColumns)"
             :data-source="appealDetailReports"
             :pagination="false"
             size="small"
             row-key="id"
-            :scroll="{ x: 780 }"
           >
-            <div slot="workSummary" slot-scope="text" class="ellipsis-cell" :title="text">{{ text || '—' }}</div>
-            <div slot="issues" slot-scope="text" class="ellipsis-cell" :title="text">{{ text || '—' }}</div>
+            <div slot="workSummary" slot-scope="text"><a-tooltip :title="text"><div class="business-cell">{{ text || '—' }}</div></a-tooltip></div>
+            <div slot="issues" slot-scope="text"><a-tooltip :title="text"><div class="business-cell">{{ text || '—' }}</div></a-tooltip></div>
           </a-table>
           <div v-if="!appealDetailReports.length" class="empty-hint">暂无关联日报</div>
         </div>
@@ -252,7 +248,7 @@ import { todayStr, fmtDate, isFrozen } from '../utils/date'
 import { buildWeeklyReport } from '../utils/reportData'
 import { exportDailyExcel, exportWeeklyExcel } from '../utils/exportExcel'
 import ListQuery from '../components/ListQuery.vue'
-import { emptyListFilters, filterListRows, listRows, listColumns } from '../utils/businessLists'
+import { emptyListFilters, filterListRows, listRows, listColumns, fitColumns } from '../utils/businessLists'
 
 export default {
   name: 'DailyView',
@@ -290,7 +286,7 @@ export default {
         const column = columns.find(c => c.dataIndex === key)
         if (key === 'status') return { ...column, customRender: undefined, scopedSlots: { customRender: 'mineStatus' } }
         return { ...column, title: { date: '填报日期', projectName: '所属项目', attendText: '是否到岗' }[key] || column.title }
-      }).concat({ title: '操作', width: 180, scopedSlots: { customRender: 'mineAction' } })
+      }).concat({ title: '操作', width: 125, scopedSlots: { customRender: 'mineAction' } })
     },
 
     myReports () {
@@ -318,7 +314,7 @@ export default {
       }
     },
     allColumns () {
-      return listColumns('reports', this, this.allPagination).concat({ title: '操作', width: 170, scopedSlots: { customRender: 'action' } })
+      return listColumns('reports', this, this.allPagination).concat({ title: '操作', width: 125, scopedSlots: { customRender: 'action' } })
     },
     weekStart () {
       return this.weekValue ? moment(this.weekValue).startOf('isoWeek') : moment().startOf('isoWeek')
@@ -398,6 +394,7 @@ export default {
     }
   },
   methods: {
+    fitColumns (columns) { return fitColumns(columns, this.$createElement) },
     onMineTableChange ({ current, pageSize }) { Object.assign(this.minePagination, { current, pageSize }) },
     onAllTableChange ({ current, pageSize }) {
       Object.assign(this.allPagination, { current, pageSize })
@@ -532,7 +529,6 @@ export default {
 .mine-stat b { font-size: 20px; color: #1f3a56; }
 .mine-stat b.green { color: #20a06b; }
 .mine-stat b.red { color: #e04b4b; }
-.ellipsis-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .inline-stats { display: flex; gap: 20px; font-size: 12.5px; color: #6b8096; margin-bottom: 10px; }
 .inline-stats b { color: #2f4358; margin-left: 2px; }
 .inline-stats b.green { color: #20a06b; }
@@ -540,7 +536,6 @@ export default {
 .weekly-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .weekly-actions { margin-left: auto; display: flex; gap: 8px; }
 .weekly-summary { background: #f7fbff; border: 1px solid #dcecfa; border-radius: 3px; padding: 10px 14px; font-size: 12.5px; color: #35536f; line-height: 22px; white-space: pre-line; margin-bottom: 14px; }
-.needs-cell { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; line-height: 17px; font-size: 12px; }
 .weekly-foot { margin-top: 12px; font-size: 11.5px; }
 .appeal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .appeal-id { font-size: 13px; font-weight: 600; color: #2c4359; }

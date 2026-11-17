@@ -1,26 +1,5 @@
 <template>
   <div class="appeals-page">
-    <section v-if="closeVisible && closeRecord" class="appeal-close-page">
-      <div class="close-page-header"><h3>项目诉求销项申请</h3><a-button @click="closeVisible = false"><a-icon type="arrow-left" />返回列表</a-button></div>
-      <div class="alert-note">填写办结说明后提交项目经理确认、企划归档；销项附件选填。</div>
-      <div class="drawer-section"><div class="drawer-section-title">诉求摘要</div>
-        <div class="detail-grid">
-          <div class="detail-item"><span class="detail-label">诉求编号</span><span class="detail-value">{{ closeRecord.id }}</span></div>
-          <div class="detail-item"><span class="detail-label">所属项目</span><span class="detail-value">{{ closeRecord.projectName }}</span></div>
-          <div class="detail-item"><span class="detail-label">主责部门 / 承办人</span><span class="detail-value">{{ closeRecord.deptName }} / {{ closeRecord.personName }}</span></div>
-          <div class="detail-item"><span class="detail-label">完成时限</span><span class="detail-value">{{ closeRecord.dueDate }}</span></div>
-          <div class="detail-item full"><span class="detail-label">诉求事项</span><span class="detail-value">{{ closeRecord.title }}</span></div>
-          <div class="detail-item full"><span class="detail-label">具体描述</span><span class="detail-value">{{ closeRecord.desc }}</span></div>
-          <div class="detail-item full"><span class="detail-label">推进计划</span><span class="detail-value">{{ closeRecord.plan }}</span></div>
-        </div>
-      </div>
-      <div class="drawer-section"><div class="drawer-section-title">销项申请</div>
-        <div class="close-field"><div class="form-label">办结说明 <span class="danger-text">*</span></div><a-textarea v-model="closeReason" :rows="6" :max-length="500" placeholder="说明实际解决情况和办结结果" /></div>
-        <div class="close-field"><div class="form-label">销项附件</div><file-uploader v-model="closeAttachments" tip="选填：办结成果证明、会议纪要、验收记录或现场照片" /></div>
-      </div>
-      <div class="close-page-actions"><a-button @click="closeVisible = false">取消</a-button><a-button type="primary" @click="submitClose">提交申请</a-button></div>
-    </section>
-    <template v-else>
     <list-query type="appeals" v-model="filters" @query="query" @reset="reset" />
 
     <div class="toolbar">
@@ -28,14 +7,13 @@
       <span class="muted toolbar-tip">诉求由工程部统一登记并安排承办人，保存后直接进入办理中。</span>
     </div>
 
-    <a-table
-      :columns="columns"
+    <a-table table-layout="fixed"
+      :columns="fitColumns(columns)"
       :data-source="filteredAppeals"
       :pagination="pagination"
       @change="onTableChange"
       row-key="id"
       size="middle"
-      :scroll="{ x: 2100 }"
     >
       <div slot="action" slot-scope="text, record" class="table-actions">
         <template v-if="record.status === '办理中'">
@@ -58,8 +36,32 @@
       </div>
     </a-table>
 
+    <a-modal title="项目诉求销项申请" :visible="closeVisible" :width="900" :mask-closable="false" @cancel="closeVisible = false">
+      <template v-if="closeRecord">
+        <div class="drawer-section"><div class="drawer-section-title">诉求摘要</div>
+          <div class="detail-grid close-summary">
+            <div class="detail-item"><span class="detail-label">诉求编号</span><span class="detail-value">{{ closeRecord.id }}</span></div>
+            <div class="detail-item"><span class="detail-label">所属项目</span><span class="detail-value">{{ closeRecord.projectName }}</span></div>
+            <div class="detail-item"><span class="detail-label">主责部门</span><span class="detail-value">{{ closeRecord.deptName }}</span></div>
+            <div class="detail-item"><span class="detail-label">承办人</span><span class="detail-value">{{ closeRecord.personName }}</span></div>
+            <div class="detail-item"><span class="detail-label">完成时限</span><span class="detail-value">{{ closeRecord.dueDate }}</span></div>
+            <div class="detail-item full"><span class="detail-label">诉求事项</span><span class="detail-value">{{ closeRecord.title }}</span></div>
+            <div class="detail-item full"><span class="detail-label">具体描述</span><span class="detail-value">{{ closeRecord.desc }}</span></div>
+            <div class="detail-item full"><span class="detail-label">推进计划</span><span class="detail-value">{{ closeRecord.plan }}</span></div>
+          </div>
+        </div>
+        <div class="drawer-section"><div class="drawer-section-title">销项申请</div>
+          <div class="close-field"><div class="form-label">办结说明 <span class="danger-text">*</span></div><a-textarea v-model="closeReason" :rows="4" :max-length="500" placeholder="说明实际解决情况和办结结果" /></div>
+          <div class="close-field"><div class="form-label">销项附件</div><file-uploader v-model="closeAttachments" tip="选填：办结成果证明、会议纪要、验收记录或现场照片" /></div>
+        </div>
+      </template>
+      <template slot="footer">
+        <a-button @click="closeVisible = false">取消</a-button>
+        <a-button type="primary" @click="submitClose">提交申请</a-button>
+      </template>
+    </a-modal>
+
     <!-- 新增 / 编辑 -->
-    </template>
     <a-modal
       :title="formMode === 'create' ? '新增项目诉求' : '编辑项目诉求'"
       :visible="formVisible"
@@ -224,16 +226,15 @@
             办理日报
             <span class="extra">仅展示已提交且关联本诉求的日报</span>
           </div>
-          <a-table
-            :columns="dailyReportColumns"
+          <a-table table-layout="fixed"
+            :columns="fitColumns(dailyReportColumns)"
             :data-source="currentReports"
             :pagination="false"
             size="small"
             row-key="id"
-            :scroll="{ x: 810 }"
           >
-            <div slot="workSummary" slot-scope="text" class="summary-cell" :title="text">{{ text }}</div>
-            <div slot="issues" slot-scope="text" class="summary-cell" :title="text">{{ text }}</div>
+            <div slot="workSummary" slot-scope="text"><a-tooltip :title="text"><div class="business-cell">{{ text }}</div></a-tooltip></div>
+            <div slot="issues" slot-scope="text"><a-tooltip :title="text"><div class="business-cell">{{ text }}</div></a-tooltip></div>
             <div slot="attend" slot-scope="text">
               <a-tag :color="text === true ? 'green' : (text === false ? 'orange' : '')">{{ text === true ? '是' : (text === false ? '否' : '未填') }}</a-tag>
             </div>
@@ -289,7 +290,7 @@
 <script>
 import moment from 'moment'
 import ListQuery from '../components/ListQuery.vue'
-import { emptyListFilters, listRows, listColumns } from '../utils/businessLists'
+import { emptyListFilters, listRows, listColumns, fitColumns } from '../utils/businessLists'
 import { closeApprovalStatus } from '../utils/workflow'
 import StatusTag from '../components/StatusTag.vue'
 import ApprovalModal from '../components/ApprovalModal.vue'
@@ -360,7 +361,7 @@ export default {
       return listRows('appeals', this.$store, this.applied)
     },
     columns () {
-      return listColumns('appeals', this, this.pagination).concat({ title: '操作', width: 210, scopedSlots: { customRender: 'action' } })
+      return listColumns('appeals', this, this.pagination).concat({ title: '操作', width: 130, scopedSlots: { customRender: 'action' } })
     },
     currentReports () {
       return this.current ? this.$store.reportsForAppeal(this.current.id) : []
@@ -395,6 +396,7 @@ export default {
     }
   },
   methods: {
+    fitColumns (columns) { return fitColumns(columns, this.$createElement) },
     closeApprovalStatus,
     onTableChange ({ current, pageSize }) {
       Object.assign(this.pagination, { current, pageSize })
@@ -581,9 +583,8 @@ export default {
 </script>
 
 <style scoped>
-.close-page-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
-.close-page-header h3 { margin:0; color:#234968; }
-.close-page-actions { display:flex; justify-content:flex-end; gap:12px; padding:16px 0; border-top:1px solid #edf2f7; }
+.close-summary .detail-item { padding: 6px 0; }
+.close-summary .detail-value { white-space: pre-wrap; max-height: 72px; overflow-y: auto; }
 .close-approval-node { padding:8px 0; border-bottom:1px solid #edf2f7; }
 .title-cell {
   overflow: hidden;
@@ -636,14 +637,6 @@ export default {
   flex: 1;
   font-size: 13px;
   color: #5b7189;
-}
-.summary-cell {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  line-height: 18px;
 }
 
 .close-empty {

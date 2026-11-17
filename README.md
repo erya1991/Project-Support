@@ -35,7 +35,7 @@ V1.4 交互回归检查（使用隔离的进程内数据，不修改浏览器演
 node scripts/check-interactions.cjs
 ```
 
-上一轮检查见 [V1.4 交互检查与修复报告](docs/V1.4-interaction-audit.md)；本轮完成情况及验收步骤见 [工作总览及全模块交互完善交付说明](docs/V1.4-overview-interactions.md)。
+前两轮检查见 [V1.4 交互检查与修复报告](docs/V1.4-interaction-audit.md)、[工作总览及全模块交互完善交付说明](docs/V1.4-overview-interactions.md)；最新界面调整、验证结果和截图见 [最终界面与列表布局调整](docs/V1.4-final-ui-adjustments.md)。
 
 ## 数据说明
 

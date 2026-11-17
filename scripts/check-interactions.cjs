@@ -216,10 +216,10 @@ async function main () {
       assert.ok(page.ledgerRows.length)
       assert.ok(page.ledgerRows.every(r => r.date === historical.date))
       assert.equal(JSON.stringify(page.stats), before)
-      let target
-      page.$router = { push: value => { target = value } }
-      page.openLedgerDetail(historical); page.jumpToModule()
-      assert.deepEqual(target, { path: '/daily', query: { tab: 'all', date: historical.date, id: historical.id } })
+      page.openLedgerDetail(historical)
+      assert.equal(page.detailVisible, true)
+      assert.equal(page.ledgerDetail.type, 'reports')
+      assert.equal(page.ledgerDetail.row.id, historical.id)
       for (const type of ['works', 'appeals', 'reports']) {
         page.ledgerFilters.personName = '不匹配人员'
         page.ledgerPagination.current = 3
@@ -263,6 +263,55 @@ async function main () {
       assert.equal(appeals.detailVisible, false)
       appeals.openDetail(a); appeals.openClose(a)
       assert.equal(appeals.detailVisible, false)
+      assert.equal(appeals.closeVisible, true)
+      appeals.closeReason = '未提交的内容'
+      appeals.closeVisible = false
+      appeals.openClose(a)
+      assert.equal(appeals.closeReason, '')
+      appeals.closeReason = '   '
+      appeals.submitClose()
+      assert.equal(appeals.closeVisible, true)
+      assert.equal(a.closeRequest, null)
+      appeals.closeReason = '办结结果已确认'
+      appeals.closeAttachments = []
+      appeals.submitClose()
+      assert.equal(appeals.closeVisible, false)
+      assert.equal(a.status, '销项审批中')
+      assert.equal(a.closeRequest.reason, '办结结果已确认')
+      assert.deepEqual(a.closeRequest.attachments, [])
+      assert.deepEqual(a.closeRequest.nodes.map(n => n.name), ['项目经理确认', '企划归档'])
+    })
+    check('重点工作精简销项界面后仍校验总体、全部项目、办结说明和佐证附件', () => {
+      const page = vm('Works')
+      const work = store.db.works.find(w => w.status === '落实中' && store.getWorkProgress(w).B > 0)
+      page.openExec({ ...work })
+      assert.equal(page.workCurrent, work)
+      page.overallContent = '从列表保存后详情应即时显示'
+      page.saveExec()
+      assert.equal(page.workCurrent.overallContent, '从列表保存后详情应即时显示')
+      work.overallContent = ''
+      page.openClose(work)
+      assert.equal(page.workDrawerMode, 'exec')
+      work.overallContent = '已完成总体执行工作'
+      store.syncWorkProjectScope(work)
+      work.projectExecutions.filter(e => e.inScope !== false).forEach(e => { e.content = ''; e.needsConfirm = false })
+      page.openClose(work)
+      assert.equal(page.workDrawerMode, 'exec')
+      const projects = work.projectExecutions.filter(e => e.inScope !== false).map(e => ({ projectId: e.projectId, content: '该项目已完成落实', attachments: [] }))
+      assert.equal(store.saveWorkExecutions(work.id, { overallContent: work.overallContent, overallAttachments: [], projects }).ok, true)
+      page.openClose({ ...work })
+      assert.equal(page.workDrawerMode, 'close')
+      assert.equal(page.workCurrent, work)
+      page.submitClose()
+      assert.equal(work.closeRequest, null)
+      page.closeReason = '已完成工作并形成成果'
+      page.submitClose()
+      assert.equal(work.closeRequest, null)
+      page.closeAttachments = [{ name: '完成证明.pdf', size: 100 }]
+      page.submitClose()
+      assert.equal(work.status, '销项审批中')
+      assert.equal(work.closeRequest.overallContent, work.overallContent)
+      assert.equal(work.closeRequest.projectExecutions.length, projects.length)
     })
     const { default: uploader } = await server.ssrLoadModule('/src/components/FileUploader.vue')
     check('同批多附件合并一次，保留已有附件', () => {

@@ -553,6 +553,19 @@ a {
 .overview-panel > .breadcrumb-row { flex: none; }
 .business-cell { white-space: pre-line; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
 
+/* 列按父容器分配宽度，长内容在单元格内省略并通过 Tooltip 查看全文。 */
+.ant-table table { width: 100%; table-layout: fixed; }
+.ant-table-thead > tr > th,
+.ant-table-tbody > tr > td { line-height: 18px; overflow-wrap: break-word; }
+.ant-table-thead > tr > th { white-space: normal; }
+.ant-table .ant-tag { margin-right: 0; padding: 0 4px; font-size: 12px; }
+.ant-table .link-btn { font-size: 12px; }
+.ant-table .file-chip { max-width: 100%; }
+.ant-table .file-chip .file-name { min-width: 0; }
+.ant-table .ant-calendar-picker { min-width: 0; }
+.cell-date { white-space: nowrap; }
+.ant-tooltip-inner { white-space: pre-wrap; overflow-wrap: anywhere; }
+
 .page-panel::-webkit-scrollbar-thumb {
   background: #d2dfec;
   border-radius: 3px;
@@ -710,15 +723,14 @@ a {
 .table-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: nowrap;
-  white-space: nowrap;
+  gap: 3px 8px;
+  flex-wrap: wrap;
 }
 
 .table-actions .ant-divider-vertical {
-  margin: 0 1px;
-  height: 11px;
+  display: none;
 }
+.table-actions .link-btn { white-space: nowrap; }
 
 .text-ellipsis {
   overflow: hidden;
@@ -805,15 +817,15 @@ a {
   background: #f5f8fc !important;
   color: #40566d;
   font-weight: 600;
-  font-size: 12.5px;
-  padding: 9px 10px !important;
+  font-size: 12px;
+  padding: 8px 5px !important;
   border-bottom: 1px solid #e6edf5 !important;
 }
 
 .ant-table-tbody > tr > td {
-  padding: 9px 10px !important;
+  padding: 8px 5px !important;
   border-bottom: 1px solid #f0f4f9 !important;
-  font-size: 12.5px;
+  font-size: 12px;
   vertical-align: middle;
 }
 

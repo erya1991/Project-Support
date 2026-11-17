@@ -19,8 +19,8 @@
       </a-tabs>
       <list-query :key="ledgerTab" :type="ledgerTab" v-model="ledgerFilters" @query="queryLedger" @reset="resetLedger" />
       <div ref="tableArea" class="ledger-table-area">
-        <a-table :columns="ledgerColumns" :data-source="ledgerRows" :pagination="ledgerPagination" @change="onLedgerTableChange"
-          row-key="id" size="small" :scroll="{ x: ledgerWidth, y: tableHeight }" />
+        <a-table table-layout="fixed" :columns="fitColumns(ledgerColumns)" :data-source="ledgerRows" :pagination="ledgerPagination" @change="onLedgerTableChange"
+          row-key="id" size="small" :scroll="{ y: tableHeight }" />
       </div>
     </section>
     <a-modal
@@ -32,8 +32,8 @@
       <div class="alert-note" style="margin-bottom:12px;">
         <a-icon type="info-circle" /> 统计日期：{{ today }}。人员到岗按人去重统计，同一人员服务多个项目时只计 1 人次；未提交日报不计为未到岗。
       </div>
-      <a-table
-        :columns="attendanceColumns"
+      <a-table table-layout="fixed"
+        :columns="fitColumns(attendanceColumns)"
         :data-source="attendanceRows"
         :pagination="false"
         size="small"
@@ -129,7 +129,6 @@
       </template>
       <template slot="footer">
         <a-button @click="detailVisible = false">关闭</a-button>
-        <a-button type="primary" ghost @click="jumpToModule">进入业务页面 <a-icon type="right" /></a-button>
       </template>
     </a-modal>
   </div>
@@ -139,7 +138,7 @@
 import StatusTag from '../components/StatusTag.vue'
 import ListQuery from '../components/ListQuery.vue'
 import { todayStr } from '../utils/date'
-import { emptyListFilters, listRows, listColumns } from '../utils/businessLists'
+import { emptyListFilters, listRows, listColumns, fitColumns } from '../utils/businessLists'
 
 export default {
   name: 'OverviewView',
@@ -169,7 +168,6 @@ export default {
       return rows
     },
     ledgerColumns () { return listColumns(this.ledgerTab, this, this.ledgerPagination, this.openLedgerDetail) },
-    ledgerWidth () { return this.ledgerColumns.reduce((sum, column) => sum + column.width, 0) },
     ledgerDetailTitle () { return { relations: '帮扶关系详情', works: '重点工作详情', appeals: '项目诉求详情', reports: '日报详情', suggestions: '制度改进建议详情' }[this.ledgerTab] },
     attendanceRows () {
       const map = {}
@@ -219,6 +217,7 @@ attendanceColumns () {
   },
   beforeDestroy () { this.tableObserver.disconnect() },
   methods: {
+    fitColumns (columns) { return fitColumns(columns, this.$createElement) },
     measureTable () { this.tableHeight = Math.max(100, this.$refs.tableArea.clientHeight - 110) },
     selectMetric (type, status) {
       if (type === 'attendance') { this.attendanceVisible = true; return }
@@ -240,15 +239,6 @@ attendanceColumns () {
       this.ledgerDetail = { type: this.ledgerTab, row: record, result: record.result,
         projectNames: (record.projectExecutions || []).filter(e => e.inScope !== false).map(e => e.projectName).join('、') }
       this.detailVisible = true
-    },
-    jumpToModule () {
-      const row = this.ledgerDetail.row
-      const path = { relations: '/relations', works: '/works', appeals: '/appeals', reports: '/daily', suggestions: '/suggestions' }[this.ledgerTab]
-      const query = { id: row.id }
-      if (this.ledgerTab === 'works') query.tab = 'works'
-      if (this.ledgerTab === 'reports') Object.assign(query, { tab: 'all', date: row.date })
-      this.detailVisible = false
-      this.$router.push({ path, query })
     }
   }
 }
