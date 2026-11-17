@@ -1,5 +1,6 @@
 import moment from 'moment'
 import { isFrozen } from '../utils/date'
+import { normalizeBusinessCodes } from '../utils/businessCodes'
 
 export const SCHEMA_VERSION = 8
 
@@ -216,6 +217,7 @@ function expandDailyReports (db) {
 
 export function migrateDb (db) {
   if (!db) return db
+  normalizeBusinessCodes(db)
   if (db.schemaVersion === SCHEMA_VERSION) return db
 
   ;(db.people || []).forEach((p, index) => {

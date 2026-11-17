@@ -301,7 +301,7 @@ const store = {
           return
         }
         const relation = {
-          id: nextCode(this.db.relations, 'BF2026', 4),
+          id: nextCode(this.db.relations, `BF${todayStr().slice(0, 4)}`, 4),
           batchId,
           personId,
           personName: person.name,
@@ -592,7 +592,7 @@ const store = {
       }))
     } else {
       sheet = {
-        id: nextCode(this.db.sheets, 'SL2026', 3),
+        id: nextCode(this.db.sheets, `ZDGZ${todayStr().slice(0, 4)}`, 4),
         system,
         deptId,
         deptName: this.getDept(deptId).name,
@@ -857,7 +857,7 @@ const store = {
   /* ---------------- 项目诉求 ---------------- */
   createAppeal (payload) {
     const appeal = {
-      id: nextCode(this.db.appeals.concat(this.db.dailyReports.map(r => ({ id: r.appealId }))), 'SQ2026', 4),
+      id: nextCode(this.db.appeals.concat(this.db.dailyReports.map(r => ({ id: r.appealId }))), `XMSQ${todayStr().slice(0, 4)}`, 4),
       projectId: payload.projectId,
       projectName: this.getProject(payload.projectId).name,
       title: payload.title,
@@ -1182,7 +1182,7 @@ const store = {
     const dept = this.getDept(payload.deptId)
     const { confirmers, nodes } = this.suggestionFlow(payload.confirmerIds)
     const suggestion = {
-      id: nextCode(this.db.suggestions, 'JY2026', 3),
+      id: nextCode(this.db.suggestions, `ZHJY${todayStr().slice(0, 4)}`, 4),
       title: payload.title,
       flow: payload.flow,
       desc: payload.desc,

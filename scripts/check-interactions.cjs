@@ -37,6 +37,55 @@ async function main () {
     }
     const suggestionPayload = () => ({ deptId: 'D01', title: '回归建议', flow: '回归制度', desc: '原始问题', confirmerIds: [store.getDept('D01').managerId], attachments: [] })
 
+    check('模拟数据采用统一业务编号，事项展示编号及种子日报引用一致', () => {
+      const seed = buildSeed()
+      for (const [key, pattern, first] of [
+        ['relations', /^BF\d{8}$/, 'BF20260001'], ['sheets', /^ZDGZ\d{8}$/, 'ZDGZ20260001'],
+        ['appeals', /^XMSQ\d{8}$/, 'XMSQ20260001'], ['suggestions', /^ZHJY\d{8}$/, 'ZHJY20260001']
+      ]) {
+        assert.equal(seed[key][0].id, first)
+        assert.ok(seed[key].every(row => pattern.test(row.id)))
+      }
+      assert.equal(workDisplayCode(seed.works[1]), 'ZDGZ20260001-02')
+      assert.ok(seed.works.every(work => seed.sheets.some(sheet => sheet.id === work.sheetId)))
+      assert.ok(seed.dailyReports.every(report => report.feedbacks.every(f => seed.appeals.some(a => a.id === f.appealId))))
+    })
+    check('新增四类业务使用当前年份、四位连续流水号', () => {
+      const year = todayStr().slice(0, 4)
+      const relation = store.createRelations({ personIds: ['P20'], projectIds: ['J02'], role: '协同', startDate: todayStr(), remark: '编号回归' }).created[0]
+      const sheet = store.saveSheet({ deptId: 'D01', system: '生产', items: [{ title: '编号回归工作', leadId: 'P01', dueDate: todayStr() }] }, true)
+      const appeal = store.createAppeal({ ...store.db.appeals[0], title: '编号回归诉求' })
+      const suggestion = store.createSuggestion(suggestionPayload())
+      for (const [row, prefix] of [[relation, 'BF'], [sheet, 'ZDGZ'], [appeal, 'XMSQ'], [suggestion, 'ZHJY']]) {
+        assert.match(row.id, new RegExp(`^${prefix}${year}\\d{4}$`))
+      }
+      assert.equal(workDisplayCode(store.db.works.find(w => w.sheetId === sheet.id)), `${sheet.id}-01`)
+      assert.ok(store.db.dailyReports.some(r => r.appealId === appeal.id))
+      const next = store.createSuggestion(suggestionPayload())
+      assert.equal(Number(next.id.slice(-4)), Number(suggestion.id.slice(-4)) + 1)
+      store.db.suggestions = [{ id: `ZHJY${Number(year) - 1}9999` }]
+      assert.equal(store.createSuggestion(suggestionPayload()).id, `ZHJY${year}0001`)
+    })
+    check('已有 V1.4 缓存仅换业务编号，关联、历史日报及内部 ID 无损且可重复迁移', () => {
+      const db = JSON.parse(JSON.stringify(store.db))
+      const year = todayStr().slice(0, 4)
+      db.dailyReports[0].id = 'RB-保留内部编号-SQ20260001'
+      db.dailyReports.push({ ...db.dailyReports[0], id: 'RB-已删除诉求历史', appealId: `XMSQ${year}0090`, appealDeleted: true })
+      const expected = JSON.parse(JSON.stringify(db))
+      db.sheets[0].id = 'SL2026001'
+      db.works.filter(w => w.sheetId === 'ZDGZ20260001').forEach(w => { w.sheetId = 'SL2026001' })
+      db.appeals[0].id = 'SQ20260001'
+      db.dailyReports.filter(r => r.appealId === 'XMSQ20260001').forEach(r => { r.appealId = 'SQ20260001' })
+      db.dailyReports.at(-1).appealId = `SQ${year}0090`
+      db.suggestions[0].id = 'JY2026001'
+      const restored = migrateDb(db)
+      assert.deepEqual(restored, expected)
+      assert.deepEqual(migrateDb(restored), expected)
+      store.state.db = restored
+      const created = store.createAppeal({ ...store.db.appeals[0], title: '保留历史编号后的新增诉求' })
+      assert.equal(created.id, `XMSQ${year}0091`)
+      assert.equal(store.db.dailyReports.find(r => r.id === 'RB-已删除诉求历史').appealId, `XMSQ${year}0090`)
+    })
     check('V1.4 存储往返保留已有内容且不重复迁移', () => {
       store.db.suggestions[0].desc += ' 自定义保留标记'
       const before = JSON.stringify(store.db)

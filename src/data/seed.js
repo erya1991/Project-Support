@@ -1,5 +1,6 @@
 import moment from 'moment'
 import { recentReportDays, todayStr } from '../utils/date'
+import { normalizeBusinessCodes } from '../utils/businessCodes'
 
 const TODAY = moment().utcOffset(8).startOf('day')
 const d = n => TODAY.clone().add(n, 'day').format('YYYY-MM-DD')
@@ -1390,7 +1391,8 @@ export function buildSeed () {
   const reports = buildReports(relations, appeals)
   const suggestions = buildSuggestions()
 
-  return {
+  // 先用稳定的种子标识生成关联及日报，再统一编号，保留原模拟内容和分布。
+  return normalizeBusinessCodes({
     version: 5,
     generatedAt: new Date().toISOString(),
     currentUserId: CURRENT_USER_ID,
@@ -1405,5 +1407,5 @@ export function buildSeed () {
     appeals,
     dailyReports: reports,
     suggestions
-  }
+  })
 }
