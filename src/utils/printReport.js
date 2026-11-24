@@ -1,12 +1,8 @@
 import store from '../store'
 import {
-  buildWorkList,
-  buildAppealList,
-  buildSuggestionList,
   buildDailyReport,
   buildWeeklyReport
 } from './reportData'
-import { todayStr } from './date'
 
 function esc (value) {
   if (value === undefined || value === null) return ''
@@ -94,55 +90,6 @@ function openPrintWindow (title, body) {
 
 function emptyRow (cols) {
   return `<tr><td class="c" colspan="${cols}" style="color:#888;padding:12px;">暂无数据</td></tr>`
-}
-
-/* ---------- 附件1 ---------- */
-export function printWorksList () {
-  const rows = buildWorkList(store.db)
-  const body = `
-    <h1>重点工作梳理清单</h1>
-    <div class="meta">导出日期：${todayStr()}　　共 ${rows.length} 项重点工作</div>
-    <table>
-      <colgroup><col style="width:5%"><col style="width:8%"><col style="width:12%"><col style="width:27%"><col style="width:26%"><col style="width:11%"><col style="width:11%"></colgroup>
-      <thead><tr><th>序号</th><th>体系</th><th>部门</th><th>重点工作</th><th>项目落实情况</th><th>存在问题</th><th>改进建议</th></tr></thead>
-      <tbody>
-        ${rows.length ? rows.map((r, i) => row([i + 1, r.system, r.deptName, r.title, r.result, r.problem, r.suggestion], [0, 1, 2])).join('') : emptyRow(7)}
-      </tbody>
-    </table>`
-  openPrintWindow('重点工作梳理清单', body)
-}
-
-/* ---------- 附件2 ---------- */
-export function printAppealsList (projectId) {
-  const project = projectId ? store.getProject(projectId) : null
-  const rows = buildAppealList(store.db, projectId)
-  const body = `
-    <h1>项目诉求办理清单</h1>
-    <div class="meta">项目：${esc(project ? project.name : '全部项目')}　　导出日期：${todayStr()}　　共 ${rows.length} 条</div>
-    <table>
-      <colgroup><col style="width:5%"><col style="width:17%"><col style="width:32%"><col style="width:10%"><col style="width:7%"><col style="width:22%"><col style="width:7%"></colgroup>
-      <thead><tr><th>序号</th><th>诉求事项</th><th>具体描述</th><th>主责部门</th><th>责任人</th><th>推进计划</th><th>完成时限</th></tr></thead>
-      <tbody>
-        ${rows.length ? rows.map((r, i) => row([i + 1, r.title, r.desc, r.deptName, r.personName, r.plan, r.dueDate], [0, 3, 4, 6])).join('') : emptyRow(7)}
-      </tbody>
-    </table>`
-  openPrintWindow('项目诉求办理清单', body)
-}
-
-/* ---------- 附件3 ---------- */
-export function printSuggestionsList () {
-  const rows = buildSuggestionList(store.db)
-  const body = `
-    <h1>制度改进建议清单</h1>
-    <div class="meta">导出日期：${todayStr()}　　共 ${rows.length} 条</div>
-    <table>
-      <colgroup><col style="width:5%"><col style="width:15%"><col style="width:13%"><col style="width:25%"><col style="width:10%"><col style="width:10%"><col style="width:12%"><col style="width:14%"><col style="width:6%"></colgroup>
-      <thead><tr><th>序号</th><th>建议事项</th><th>涉及制度/流程</th><th>问题描述</th><th>提出人/部门</th><th>主责部门</th><th>回复意见</th><th>整改计划</th><th>完成时限</th></tr></thead>
-      <tbody>
-        ${rows.length ? rows.map((r, i) => row([i + 1, r.title, r.flow, r.desc, r.proposer, r.deptName, r.replyText, r.plan, r.deadline], [0, 4, 5, 8])).join('') : emptyRow(9)}
-      </tbody>
-    </table>`
-  openPrintWindow('制度改进建议清单', body)
 }
 
 /* ---------- 附件4 ---------- */

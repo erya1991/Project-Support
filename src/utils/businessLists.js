@@ -1,182 +1,142 @@
 import moment from 'moment'
-import StatusTag from '../components/StatusTag.vue'
-import { fmtDate, isFrozen, todayStr } from './date'
+import { fmtDate } from './date'
 import { matchesKeyword, inDateRange } from './listQuery'
-import { workResultText } from './reportData'
-import { APPROVAL_STATES, sheetProcessStatus, closeApprovalStatus, suggestionApprovalStatus, relationStatus, workDisplayCode } from './workflow'
+import { PROJECT, DEPARTMENT, APPEAL_STATES, personName, workRows, targetOf } from './serviceData'
+import { dailyRows, reportRow } from './reportData'
 
+export const LIST_TITLES = { appeals: '基层诉求', works: '部门重点工作', executions: '项目执行情况', reports: '日报',
+  suggestions: '制度改进建议', relations: '帮扶关系', mine: '我的重点工作' }
 const text = (key, label) => ({ key, label, kind: 'text' })
 const select = (key, label, options) => ({ key, label, kind: 'select', options })
-const range = (key, label, match) => ({ key, label, kind: 'range', match })
-const dict = values => values.map(value => ({ value, label: value }))
+const dateRange = (key, label, match) => ({ key, label, match, kind: 'range' })
+const values = items => items.map(value => ({ value, label: value }))
+const options = items => items.map(item => ({ value: item.id, label: item.name }))
 
-// 业务菜单和总览直接使用同一组查询定义、过滤逻辑和展示列。
 export function listFilterFields (type, store) {
-  const departments = store.db.departments.map(d => ({ value: d.id, label: d.name }))
-  const projects = store.db.projects.map(p => ({ value: p.id, label: p.name }))
-  const department = (key = 'deptId', label = '部门') => select(key, label, departments)
-  const project = () => select('projectId', '项目', projects)
-  const state = (key, label, values) => select(key, label, dict(values))
-  const closeState = () => state('closeStatus', '销项审批状态', APPROVAL_STATES)
-  const schemas = {
-    relations: [text('personName', '服务人员'), text('employeeNo', '工号'), project(), department('deptId', '所属部门'),
-      state('configStatus', '配置状态', ['启用', '停用']), text('id', '关系编号'),
-      select('company', '所属单位', dict([...new Set(store.db.projects.map(p => p.company).filter(Boolean))])),
-      text('projectManager', '项目经理'), text('managerPhone', '项目经理联系方式'), text('phone', '人员联系方式'),
-      state('role', '帮扶角色', ['主责', '协同']), state('validity', '当前有效', ['当前有效', '未到生效日', '已停用']),
-      range('dateRange', '有效期', 'period'), text('remark', '配置说明')],
-    sheets: [text('id', '梳理单编号'), state('system', '所属体系', [...new Set(store.db.departments.map(d => d.system))]),
-      department('deptId', '归属部门'), state('processStatus', '流程状态', APPROVAL_STATES), text('creatorName', '填报人'),
-      range('dateRange', '填报日期', 'createDate'), text('remark', '创建说明'), { key: 'itemCount', label: '重点工作数量', kind: 'number' }],
-    works: [text('code', '事项编号'), text('sheetId', '梳理单编号'), department('deptId', '归属部门'),
-      state('status', '工作状态', ['待生效', '落实中', '销项审批中', '已销项']),
-      state('system', '所属体系', [...new Set(store.db.departments.map(d => d.system))]), text('leadName', '牵头人'), closeState(),
-      range('dueRange', '完成时限', 'dueDate'), state('progressState', '项目落实进展', ['未配置项目', '未填写', '部分填写', '全部填写']),
-      text('title', '重点工作内容'), text('problem', '存在问题'), text('suggestion', '改进建议'), text('result', '落实情况')],
-    appeals: [text('id', '诉求编号'), text('title', '诉求事项'), project(), state('status', '办理状态', ['办理中', '销项审批中', '已销项']),
-      department('deptId', '主责部门'), text('personName', '承办人'), closeState(), range('dueRange', '完成时限', 'dueDate'),
-      state('overdueText', '是否超期', ['是', '否']), state('source', '诉求来源', ['工程部梳理', '项目反馈', '日报', '现场', '其他']),
-      department('coDeptId', '协同部门'), text('desc', '具体描述'), text('plan', '推进计划'), text('latestProgress', '最新进展')],
-    reports: [{ key: 'date', label: '填报日期', kind: 'date' }, text('personName', '姓名'), project(),
-      state('status', '填报状态', ['未填写', '已提交']), department(), state('attendText', '是否到岗', ['是', '否', '未填报']),
-      state('frozenText', '冻结状态', ['已冻结', '未冻结']), range('submitRange', '提交时间', 'submitTime'),
-      text('appealId', '诉求编号'), text('appealTitle', '对应诉求事项'), text('workContent', '当日工作开展情况'),
-      text('newIssues', '需协调解决问题'), text('absentReason', '未到岗原因')],
-    suggestions: [text('id', '建议编号'), text('title', '建议事项'), department('deptId', '主责部门'),
-      state('approvalStatus', '审批状态', APPROVAL_STATES), text('proposerName', '提出人'), department('proposerDeptId', '提出部门'),
-      text('confirmerNames', '确认负责人'), state('adopt', '回复结论', ['改', '不改', '待回复']),
-      range('dateRange', '提出日期', 'createdAt'), text('flow', '涉及制度/流程'), text('desc', '问题描述'),
-      text('replyText', '回复意见'), text('archiveOpinion', '归档意见')],
-    weekly: [text('personName', '姓名'), department(), project(), text('needs', '项目层面服务需求'),
-      text('workContent', '当日工作开展情况'), text('issues', '需协调解决问题'), text('reason', '未到岗原因')]
+  const db = store.db
+  const dept = select('deptId', '总部部门', options(db.departments))
+  const company = select('company', '所属分公司', values(db.companies))
+  const project = select('projectId', '项目名称', options(db.projects))
+  const state = choices => select('status', '状态', values(choices))
+  const title = text('title', '重点工作名称')
+  const workDept = { ...dept, label: '归属部门' }
+  const workSystem = select('system', '所属体系', values(db.systems))
+  const owner = { ...dept, label: '主责部门' }
+  const status = state(['待填写', '已填写'])
+  const execution = [title, project, workDept, status, company, text('helperNames', '帮扶人员'), text('content', '项目落实情况'), dateRange('firstRange', '录入时间', 'firstAt')]
+  const fields = {
+    relations: [text('personName', '总部帮扶人员'), select('type', '帮扶对象类型', values([DEPARTMENT, PROJECT])), company,
+      state(['启用', '停用']), text('employeeNo', '工号'), dept, text('targetName', '帮扶部门／项目'),
+      select('targetId', '帮扶对象', [...db.projects, ...db.branchDepartments].map(t => ({ value: t.id, label: t.company + ' · ' + t.name }))),
+      text('personTitle', '职务'), text('manager', '对应负责人'), text('managerPhone', '负责人联系方式'), text('id', '关系编号')],
+    works: [title, workSystem, workDept, state(['启用', '停用']), text('content', '重点工作内容')],
+    executions: execution, mine: [status, title, project, workDept],
+    reports: [{ key: 'date', label: '填报日期', kind: 'date' }, text('personName', '填报人'), project, state(['待填写', '已提交']),
+      company, dept, select('frozenText', '冻结状态', values(['已冻结', '未冻结'])), dateRange('submitRange', '提交时间', 'submitTime'), select('attendText', '是否到岗', values(['是', '否', '未填报'])),
+      text('projectNeeds', '项目层面服务需求'), text('workContent', '当日工作开展情况'), text('newIssues', '需协调问题')],
+    appeals: [text('title', '诉求标题'), owner, state([...APPEAL_STATES, '已退回']), company, text('id', '诉求单号'),
+      text('creatorName', '发起人'), text('unitName', '所属部门／项目'), text('handlerName', '承办人'), text('desc', '诉求内容'), dateRange('submitRange', '提交时间', 'submittedAt')],
+    suggestions: [text('title', '建议标题'), owner, state(['待回复', '已回复']), select('decision', '回复结果', values(['改', '不改'])),
+      text('id', '建议编号'), text('creatorName', '发起人'), select('company', '所属分公司', values(['公司总部', ...db.companies])),
+      text('unitName', '所属部门／项目'), text('flow', '涉及制度/流程'), text('desc', '建议内容'), text('comment', '回复说明'), dateRange('createdRange', '提交时间', 'createdAt')],
+    weekly: [text('personName', '填报人'), dept, project, company, text('needs', '项目层面服务需求'), text('workContent', '当日工作开展情况'),
+      text('issues', '需协调问题'), text('reason', '未到岗原因')]
   }
-  return schemas[type]
+  return fields[type]
 }
 
 export function emptyListFilters (type, store) {
-  const filters = {}
-  listFilterFields(type, store).forEach(field => { filters[field.key] = field.kind === 'text' ? '' : undefined })
-  if (type === 'reports') filters.date = moment()
+  const filters = Object.fromEntries(listFilterFields(type, store).map(f => [f.key, undefined]))
+  if (type === 'reports') filters.date = moment(store.state.day)
   return filters
 }
 
 export function filterListRows (type, rows, filters, store) {
   const fields = listFilterFields(type, store)
-  return rows.filter(row => fields.every(field => {
-    const value = filters[field.key]
-    if (value === undefined || value === null || value === '') return true
-    if (field.kind === 'text') return matchesKeyword(value, [row[field.key]])
-    if (field.kind === 'date') return row[field.key] === fmtDate(value)
-    if (field.kind === 'range') {
-      if (field.match === 'period') return !value || value.length !== 2 ||
-        (row.startDate <= fmtDate(value[1]) && (!row.endDate || row.endDate >= fmtDate(value[0])))
-      return inDateRange(row[field.match], value)
-    }
-    if (field.key === 'coDeptId') return (row.coDepts || []).includes(value)
-    if (field.key === 'adopt') {
-      const replies = (row.confirmers || []).filter(c => c.reply)
-      return value === '待回复' ? !replies.length : replies.some(c => c.reply.adopt === value)
-    }
-    return row[field.key] === value
-  }))
+  return rows.filter(row => {
+    if (filters.eligible && !row.eligible) return false
+    return fields.every(({ key, kind, match }) => {
+      const value = filters[key]
+      if (value === undefined || value === null || value === '') return true
+      if (kind === 'range') return inDateRange(row[match], value)
+      if (kind === 'date') return row[key] === fmtDate(value)
+      if (kind === 'text') return matchesKeyword(value, [row[key]])
+      if (key === 'projectId' && row.projectIds) return row.projectIds.includes(value)
+      if (key === 'company' && row.companies) return row.companies.includes(value)
+      return row[key] === value
+    })
+  })
 }
 
 export function listRows (type, store, filters = {}) {
-  let rows = []
-  if (type === 'relations') rows = store.db.relations.map(r => ({ ...r,
-    configStatus: relationStatus(r), validity: store.relationValidity(r),
-    employeeNo: (store.getPerson(r.personId) || {}).employeeNo,
-    phone: (store.getPerson(r.personId) || {}).phone,
-    company: (store.getProject(r.projectId) || {}).company,
-    managerPhone: (store.getProject(r.projectId) || {}).managerPhone,
-    period: `${r.startDate} 至 ${r.endDate || '长期'}`
-  }))
-  if (type === 'sheets') rows = store.db.sheets.map(s => ({ ...s, itemCount: s.items.length, processStatus: sheetProcessStatus(s) }))
-  if (type === 'works') rows = store.db.works.map(w => {
-    const p = store.getWorkProgress(w)
-    return { ...w, code: workDisplayCode(w), closeStatus: closeApprovalStatus(w), result: workResultText(w),
-      progressText: p.B ? `${p.A}/${p.B}（${p.A === p.B ? '项目已全部填写' : `未填 ${p.B - p.A} 项`}）` : '未配置有效帮扶项目',
-      progressState: !p.B ? '未配置项目' : (p.A === p.B ? '全部填写' : (p.A ? '部分填写' : '未填写')) }
-  })
-  if (type === 'appeals') rows = store.db.appeals.filter(a => a.status !== '已删除').map(a => ({ ...a,
-    closeStatus: closeApprovalStatus(a), overdueText: a.dueDate < todayStr() && a.status !== '已销项' ? '是' : '否'
-  }))
-  if (type === 'reports') {
-    const activeIds = new Set(store.db.appeals.filter(a => a.status !== '已删除').map(a => a.id))
-    const order = new Map(store.db.people.map((p, i) => [p.id, i]))
-    rows = store.db.dailyReports.filter(r => !r.legacy && (r.status === '已提交' || activeIds.has(r.appealId)))
-      .map(r => ({ ...r, frozen: isFrozen(r.date), frozenText: isFrozen(r.date) ? '已冻结' : '未冻结',
-        attendText: r.status === '已提交' ? (r.attend === true ? '是' : (r.attend === false ? '否' : '未填报')) : '未填报',
-        workContent: r.status === '已提交' ? r.workContent : '', newIssues: r.status === '已提交' ? r.newIssues : '' }))
-      .sort((a, b) => b.date.localeCompare(a.date) || (order.get(a.personId) || 0) - (order.get(b.personId) || 0) || (a.appealTitle || '').localeCompare(b.appealTitle || '', 'zh'))
+  const db = store.db
+  let rows
+  if (type === 'relations') {
+    rows = db.relations.map(r => {
+      const p = store.getPerson(r.personId)
+      const target = targetOf(db, r.type, r.targetId)
+      return { ...r, personName: p.name, employeeNo: p.employeeNo, personTitle: p.title, phone: p.phone, deptId: p.deptId,
+        deptName: store.getDept(p.deptId).name, company: target.company, targetName: target.name, manager: target.manager, managerPhone: target.managerPhone }
+    })
+  } else if (type === 'works') rows = workRows(db)
+  else if (type === 'mine') rows = store.personalWork().tasks
+  else if (type === 'executions') rows = workRows(db).flatMap(w => w.executions.filter(e => e.scope === '当前'))
+  else if (type === 'reports') {
+    if (filters.date) rows = dailyRows(db, fmtDate(filters.date))
+    else {
+      const today = store.state.day
+      rows = [...dailyRows(db, today), ...db.dailyReports.filter(r => r.date !== today).map(r => reportRow(r, false))]
+        .sort((a, b) => b.date.localeCompare(a.date))
+    }
+  } else {
+    rows = db[type].filter(r => !r.deleted).map(r => {
+      const dept = store.getDept(r.deptId)
+      const base = { ...r, deptName: dept.name, manager: dept.manager, creatorName: personName(db, r.creatorId) }
+      if (type === 'appeals') return { ...base, handlerName: personName(db, r.handlerId) }
+      return { ...base, decision: r.reply && r.reply.decision, comment: r.reply && r.reply.comment }
+    })
   }
-  if (type === 'suggestions') rows = store.db.suggestions.map(s => {
-    const replies = (s.confirmers || []).filter(c => c.reply)
-    return { ...s, approvalStatus: suggestionApprovalStatus(s), proposerText: `${s.proposerName}\n${s.proposerDeptName}`,
-      confirmerNames: (s.confirmers || []).map(c => c.name).join('、'),
-      replyText: replies.length ? replies.map(c => `${c.name}：${c.reply.adopt}；${c.reply.reason || c.reply.plan || ''}；${c.reply.comment || ''}`).join('；') : (s.status === '已退回' ? '已退回' : '待部门确认') }
-  })
   return filterListRows(type, rows, filters, store)
 }
 
-// [列名, 展示字段, 相对宽度, 格式]；业务页追加操作列后统一适配容器。
-const columnSpecs = {
-  relations: [['关系编号', 'id', 98], ['总部服务人员', 'personName', 72], ['工号', 'employeeNo', 78], ['所属部门', 'deptName', 100],
-    ['帮扶项目', 'projectName', 120], ['所属单位', 'company', 95], ['项目经理', 'projectManager', 65],
-    ['帮扶角色', 'role', 60], ['有效期', 'period', 130], ['配置状态', 'configStatus', 80, 'status'], ['当前有效', 'validity', 85]],
-  sheets: [['梳理单编号', 'id', 108], ['体系', 'system', 60], ['归属部门', 'deptName', 130], ['重点工作数', 'itemCount', 80],
-    ['填报人', 'creatorName', 80], ['填报日期', 'createDate', 100], ['创建说明', 'remark', 240], ['流程状态', 'processStatus', 100, 'status']],
-  works: [['事项编号', 'code', 125], ['体系', 'system', 52], ['部门', 'deptName', 96], ['重点工作', 'title', 150], ['牵头人', 'leadName', 65],
-    ['完成时限', 'dueDate', 88], ['项目落实进展', 'progressText', 125], ['工作状态', 'status', 96, 'status'], ['销项审批状态', 'closeStatus', 94, 'status']],
-  appeals: [['诉求编号', 'id', 98], ['诉求事项', 'title', 140], ['所属项目', 'projectName', 110], ['主责部门', 'deptName', 100],
-    ['承办人', 'personName', 62], ['推进计划', 'plan', 125], ['完成时限', 'dueDate', 88, 'due'], ['最新进展', 'latestProgress', 130, 'latest'],
-    ['办理状态', 'status', 96, 'status'], ['销项审批状态', 'closeStatus', 94, 'status']],
-  reports: [['日期', 'date', 85], ['姓名', 'personName', 55], ['部门', 'deptName', 85], ['项目', 'projectName', 100],
-    ['对应诉求事项', 'appealTitle', 120, 'appeal'], ['填报状态', 'status', 74, 'status'], ['冻结状态', 'frozenText', 70, 'status'],
-    ['到岗', 'attendText', 56], ['当日工作开展情况', 'workContent', 140], ['今日项目反馈需协调解决问题', 'newIssues', 140], ['提交时间', 'submitTime', 112]],
-  suggestions: [['建议编号', 'id', 100], ['建议事项', 'title', 150], ['涉及制度/流程', 'flow', 115], ['提出人/部门', 'proposerText', 100],
-    ['主责部门', 'deptName', 90], ['确认负责人', 'confirmerNames', 90], ['回复意见', 'replyText', 190], ['提出时间', 'createdAt', 85, 'date'],
-    ['审批状态', 'approvalStatus', 85, 'status']]
+// 业务菜单和总览使用同一组具名字段。宽度按可用表格宽度分配。
+const specs = {
+  relations: [['编号', 'id', 106], ['总部帮扶人员', 'personName', 80], ['工号', 'employeeNo', 70], ['职务', 'personTitle', 82],
+    ['总部部门', 'deptName', 96], ['对象类型', 'type', 66], ['所属分公司', 'company', 88], ['帮扶部门／项目', 'targetName', 130],
+    ['对应负责人', 'manager', 70], ['联系方式', 'managerPhone', 100], ['状态', 'status', 61]],
+  works: [['所属体系', 'system', 82], ['归属部门', 'deptName', 130], ['重点工作名称', 'title', 240],
+    ['项目落实进展 C/D', 'progressText', 115], ['状态', 'status', 76]],
+  executions: [['重点工作事项', 'title', 164], ['所属分公司', 'company', 96], ['项目名称', 'projectName', 132],
+    ['帮扶人员', 'helperNames', 112], ['填报状态', 'status', 76], ['首次录入时间', 'firstAt', 130]],
+  mine: [['重点工作事项', 'title', 160], ['归属部门', 'deptName', 110], ['本人项目进度', 'personalProgress', 80],
+    ['所属分公司', 'company', 96], ['项目名称', 'projectName', 140], ['填报状态', 'status', 72], ['最后修改时间', 'lastAt', 125]],
+  workDetail: [['项目名称', 'projectName', 125], ['所属分公司', 'company', 85], ['帮扶人员', 'helperNames', 85], ['项目落实情况', 'content', 142],
+    ['状态', 'status', 65], ['范围', 'scope', 55], ['首次填报人', 'firstName', 75], ['录入时间', 'firstAt', 103],
+    ['最后修改人', 'lastName', 75], ['修改时间', 'lastAt', 103]],
+  appeals: [['单号', 'id', 115], ['诉求标题', 'title', 170], ['发起人', 'creatorName', 65], ['所属分公司', 'company', 92],
+    ['所属部门／项目', 'unitName', 120], ['主责部门', 'deptName', 110], ['承办人', 'handlerName', 65], ['当前状态', 'status', 90], ['提交时间', 'submittedAt', 116]],
+  suggestions: [['建议编号', 'id', 116], ['建议标题', 'title', 180], ['发起人', 'creatorName', 68], ['所属分公司', 'company', 95],
+    ['所属部门／项目', 'unitName', 118], ['主责部门', 'deptName', 115], ['回复结果', 'decision', 70], ['当前状态', 'status', 78]],
+  reports: [['填报日期', 'date', 101], ['填报人', 'personName', 70], ['所属分公司', 'company', 108], ['帮扶项目', 'projectName', 167],
+    ['是否到岗', 'attendText', 68], ['当日工作开展情况', 'workContent', 214], ['填报状态', 'status', 76]],
+  allReports: [['填报日期', 'date', 90], ['填报人', 'personName', 58], ['总部部门', 'deptName', 92], ['所属分公司', 'company', 92],
+    ['帮扶项目', 'projectName', 136], ['是否到岗', 'attendText', 58], ['当日工作开展情况', 'workContent', 148],
+    ['今日需协调问题', 'newIssues', 124], ['填报状态', 'status', 65], ['冻结状态', 'frozenText', 65], ['提交时间', 'submitTime', 103]],
+  weeklyAbsent: [['日期', 'date', 100], ['姓名', 'personName', 75], ['部门', 'deptName', 100], ['帮扶项目', 'projectName', 143],
+    ['项目层面服务需求', 'needs', 165], ['是否到岗', 'attend', 65], ['未到岗原因', 'reason', 175]],
+  weeklyService: [['日期', 'date', 100], ['姓名', 'personName', 75], ['部门', 'deptName', 100], ['帮扶项目', 'projectName', 143],
+    ['项目层面服务需求', 'needs', 165], ['是否到岗', 'attend', 65], ['当日工作开展情况', 'workContent', 175], ['需协调解决问题', 'issues', 130]]
 }
 
-// 所有业务表格使用百分比列宽，包括追加的操作列及弹窗中的明细列。
-export function fitColumns (columns, h) {
-  const total = columns.reduce((sum, column) => sum + (column.width || 100), 0)
-  return columns.map(column => {
-    const fitted = { ...column, width: `${(column.width || 100) / total * 100}%` }
-    if (!column.scopedSlots && column.dataIndex) {
-      fitted.customRender = (value, row, index) => {
-        const content = column.customRender ? column.customRender(value, row, index) : value
-        if (content != null && typeof content === 'object') return content
-        const text = content == null || content === '' ? '—' : String(content)
-        return h('a-tooltip', { props: { title: text } }, [h('div', { class: 'business-cell' }, text)])
-      }
-    }
-    return fitted
-  })
+export function listColumns (type) {
+  return specs[type].map(([title, dataIndex, width]) => ({ title, dataIndex, key: dataIndex, width }))
 }
 
-export function listColumns (type, vm, pagination, detail) {
-  const h = vm.$createElement
-  const linkKey = { relations: 'id', sheets: 'id', works: 'code', appeals: 'id', reports: 'date', suggestions: 'id' }[type]
-  const columns = columnSpecs[type].map(([title, dataIndex, width, format]) => ({
-    title, dataIndex, key: dataIndex, width,
-    customRender: (value, row) => {
-      const content = format === 'date' ? (value || '').slice(0, 10) : (value == null || value === '' ? '—' : String(value))
-      const link = handler => h('a-tooltip', { props: { title: content } }, [h('a', { class: 'business-cell', on: { click: handler } }, content)])
-      if (detail && dataIndex === linkKey) return link(() => detail(row))
-      if (format === 'status') return h(StatusTag, { props: { status: value } })
-      if (format === 'appeal' && !detail && vm.openAppealDetail && vm.$store.db.appeals.some(a => a.id === row.appealId)) {
-        return link(() => vm.openAppealDetail(row.appealId))
-      }
-      const cellContent = dataIndex === 'period'
-        ? [h('span', { class: 'cell-date' }, row.startDate), ' 至 ', h('span', { class: 'cell-date' }, row.endDate || '长期')]
-        : content
-      const children = [h('div', { class: 'business-cell' }, cellContent)]
-      if (format === 'latest' && row.latestReportDate) children.push(h('div', { class: 'muted cell-sub' }, row.latestReportDate))
-      if (format === 'due' && row.overdueText === '是') children.push(h('a-tag', { props: { color: 'red' } }, '超期'))
-      return h('a-tooltip', { props: { title: content } }, [h('div', children)])
-    }
-  }))
-  return [{ title: '序号', key: 'sequence', width: 44, align: 'center', customRender: (t, r, i) => ((pagination.current || 1) - 1) * pagination.pageSize + i + 1 }, ...columns]
+export function fitColumns (columns) {
+  const total = columns.reduce((sum, c) => sum + c.width, 0)
+  return columns.map(c => ({ ...c, width: c.width / total * 100 + '%' }))
 }
+
+export const detailLinks = { relations: ['id', 'personName'], works: ['title'], executions: ['title', 'projectName'],
+  mine: ['title', 'projectName'], workDetail: ['projectName'], appeals: ['id', 'title'], suggestions: ['id', 'title'], reports: ['date', 'personName'],
+  allReports: ['date', 'personName'], weeklyAbsent: ['date'], weeklyService: ['date'] }

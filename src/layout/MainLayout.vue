@@ -49,7 +49,7 @@
             <div class="user-name">{{ user.name }}</div>
             <div class="user-dept">{{ deptName }} · {{ user.title }}</div>
           </div>
-          <span class="user-tag">服务人员</span>
+          <button class="user-tag switch-person" type="button" @click="openPerson">切换演示人员</button>
         </div>
 
         <div class="todo-entry" @click="showTodo = true">
@@ -89,7 +89,7 @@
               v-for="menu in menus"
               :key="menu.path"
               class="module-item"
-              :class="{ active: currentPath === menu.path }"
+              :class="{ active: currentPath === menu.path, child: menu.child }"
               @click="go(menu.path)"
             >
               <a-icon :type="menu.icon" />
@@ -131,6 +131,10 @@
         </div>
       </main>
     </div>
+
+    <a-modal title="切换演示人员" :visible="showPerson" :width="500" ok-text="切换" @ok="changePerson" @cancel="showPerson = false">
+      <a-form-model layout="vertical"><a-form-model-item label="演示人员"><person-select v-model="selectedPerson" /></a-form-model-item></a-form-model>
+    </a-modal>
 
     <a-modal
       :visible="showNotice"
@@ -214,13 +218,16 @@
 
 <script>
 import { MODULE_MENUS } from '../router'
-import { todayStr } from '../utils/date'
+import PersonSelect from '../components/PersonSelect.vue'
 
 export default {
   name: 'MainLayout',
+  components: { PersonSelect },
   data () {
     return {
       keyword: '',
+      showPerson: false,
+      selectedPerson: undefined,
       visited: [],
       showNotice: false,
       showMessages: false,
@@ -249,8 +256,7 @@ export default {
       return this.$store.currentUser
     },
     deptName () {
-      const dept = this.$store.getDept(this.user.deptId)
-      return dept ? dept.name : ''
+      return this.$store.orgOf(this.user).unitName
     },
     currentPath () {
       return this.$route.path
@@ -262,87 +268,20 @@ export default {
       const base = [{ path: '/overview', title: '首页', closable: false }]
       return base.concat(this.visited)
     },
-    todoData () {
-      return this.$store.todos()
-    },
-    todoTotal () {
-      return this.todoData.total
-    },
+    todoGroups () { return this.$store.todoGroups() },
+    todoTotal () { return this.todoGroups.reduce((count, group) => count + group.items.length, 0) },
     notices () {
-      const list = []
-      const t = this.todoData
-      if (t.dailyCount) {
-        list.push({
-          title: `您还有 ${t.dailyCount} 份诉求日报待提交`,
-          desc: '请于当日24:00前完成填写，次日00:00自动冻结。',
-          path: '/daily',
-          time: '今日'
-        })
-      }
-      if (t.approvalCount) {
-        list.push({
-          title: `当前有 ${t.approvalCount} 项审批事项待处理`,
-          desc: '包括重点工作创建/销项审批、诉求销项及制度建议确认。',
-          path: '/overview',
-          time: '待处理'
-        })
-      }
-      if (t.appealCount) {
-        list.push({
-          title: `您负责的 ${t.appealCount} 条项目诉求正在办理`,
-          desc: '可在项目诉求办理中查看最新进展并更新推进计划。',
-          path: '/appeals',
-          time: '办理中'
-        })
-      }
-      return list
-    },
-    messageList () {
-      const list = this.notices.map((n, index) => ({
-        ...n,
-        icon: index === 0 ? 'form' : (index === 1 ? 'audit' : 'message')
+      return this.todoGroups.filter(group => group.items.length).map(group => ({
+        title: group.title + ' · ' + group.items.length + ' 项',
+        desc: group.items[0].title, path: group.items[0].path, time: '待处理'
       }))
-      const frozenCount = this.$store.db.dailyReports.filter(r => r.frozen).length
-      if (frozenCount) {
-        list.push({
-          title: '历史日报已冻结',
-          desc: '历史日期的日报已按北京时间次日00:00自动冻结，个人不可修改，如需修订请联系企划部管理员。',
-          path: '/daily',
-          time: '系统提醒',
-          icon: 'lock'
-        })
-      }
-      return list
     },
-    todoGroups () {
-      const t = this.todoData
-      const today = todayStr()
-      const dailyItems = this.$store.db.dailyReports
-        .filter(r => !r.legacy && r.date === today && r.personId === this.user.id && r.status !== '已提交')
-        .map(r => ({ title: `${r.projectName} · ${r.appealTitle}`, desc: `${r.date} · ${r.status}`, path: '/daily' }))
-      const appealItems = this.$store.db.appeals
-        .filter(a => a.personId === this.user.id && a.status === '办理中')
-        .map(a => ({ title: a.title, desc: `${a.projectName} · 完成时限 ${a.dueDate}`, path: '/appeals' }))
-      const approvalItems = []
-      t.sheets.forEach(s => approvalItems.push({ title: `重点工作梳理单创建审批 ${s.id}`, desc: `${s.deptName} · ${(s.approvals.find(n => n.result === '待处理') || {}).name || '待审核'}`, path: `/works?tab=sheets&id=${s.id}` }))
-      t.workCloses.forEach(w => approvalItems.push({ title: `重点工作销项审批 ${w.closeRequest.id}`, desc: w.title, path: `/works?tab=works&id=${w.id}` }))
-      t.appealCloses.forEach(a => approvalItems.push({ title: `诉求销项审批 ${a.closeRequest.id}`, desc: `${a.projectName} · ${a.title}`, path: `/appeals?id=${a.id}` }))
-      t.suggestions.forEach(s => approvalItems.push({ title: `制度改进建议流程待办 ${s.id}`, desc: s.title, path: `/suggestions?id=${s.id}` }))
-      return [
-        { key: 'daily', title: '待填日报', color: 'blue', items: dailyItems },
-        { key: 'appeal', title: '待推进诉求', color: 'orange', items: appealItems },
-        { key: 'approval', title: '待处理审批', color: 'red', items: approvalItems }
-      ]
-    }
+    messageList () { return this.notices.map(n => ({ ...n, icon: 'notification' })) }
   },
   watch: {
     $route: {
       immediate: true,
       handler (route) {
-        this.$store.syncV14Data()
-        this.$store.refreshDailyWindow()
-        this.$store.syncAllWorkProjectScopes()
-        this.$store.persist()
         if (route.path === '/overview') return
         if (!this.visited.some(t => t.path === route.path)) {
           this.visited.push({ path: route.path, title: route.meta.title, closable: true })
@@ -351,6 +290,11 @@ export default {
     }
   },
   methods: {
+    openPerson () { this.selectedPerson = this.user.id; this.showPerson = true },
+    changePerson () {
+      this.$store.selectPerson(this.selectedPerson)
+      this.showPerson = false
+    },
     go (path) {
       if (this.$route.fullPath !== this.$router.resolve(path).route.fullPath) this.$router.push(path)
     },

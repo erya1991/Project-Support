@@ -1,12 +1,6 @@
 import * as XLSX from 'xlsx-js-style'
 import { todayStr } from './date'
-import {
-  buildWorkList,
-  buildAppealList,
-  buildSuggestionList,
-  buildDailyReport,
-  buildWeeklyReport
-} from './reportData'
+import { buildDailyReport, buildWeeklyReport } from './reportData'
 import store from '../store'
 
 const THIN = { style: 'thin', color: { rgb: '9AAABB' } }
@@ -87,10 +81,6 @@ function download (wb, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 3000)
 }
 
-function safeName (name) {
-  return String(name).replace(/[\\/:*?"<>|]/g, '')
-}
-
 function newBook () {
   return XLSX.utils.book_new()
 }
@@ -99,131 +89,29 @@ function addSheet (wb, ws, name) {
   XLSX.utils.book_append_sheet(wb, ws, name)
 }
 
-/* ---------- 附件1 重点工作梳理清单 ---------- */
-export function exportWorksExcel () {
-  const db = store.db
-  const rows = buildWorkList(db)
-  const headers = ['序号', '体系', '部门', '重点工作', '项目落实情况', '存在问题', '改进建议']
+export function exportWorksExcel (works) {
+  const headers = ['所属体系', '归属部门', '重点工作名称', '重点工作内容', '事项状态', '所属分公司', '项目名称', '帮扶人员',
+    '项目落实情况', '填报状态', '统计范围', '首次填报人', '首次录入时间', '最后修改人', '最后修改时间']
   const ws = {}
-  put(ws, 0, 0, '重点工作梳理清单', STYLE.title)
-  merge(ws, 0, 0, 0, 6)
+  put(ws, 0, 0, '重点工作及项目执行情况', STYLE.title)
+  merge(ws, 0, 0, 0, headers.length - 1)
   setRowHeight(ws, 0, 30)
-  headers.forEach((h, c) => put(ws, 1, c, h, STYLE.header))
-  setRowHeight(ws, 1, 28)
-
-  let sysSeq = 0
-  let lastSystem = null
-  let systemStart = 2
-  let deptStart = 2
-  let lastDept = null
-
-  rows.forEach((row, index) => {
-    const r = index + 2
-    if (row.system !== lastSystem) {
-      sysSeq += 1
-      if (index > 0) {
-        if (r - 1 > systemStart) merge(ws, systemStart, 0, r - 1, 0)
-        if (r - 1 > systemStart) merge(ws, systemStart, 1, r - 1, 1)
-      }
-      systemStart = r
-      lastSystem = row.system
-      put(ws, r, 0, sysSeq, STYLE.center)
-      put(ws, r, 1, row.system, STYLE.center)
-    } else {
-      put(ws, r, 0, '', STYLE.center)
-      put(ws, r, 1, '', STYLE.center)
+  headers.forEach((label, i) => put(ws, 1, i, label, STYLE.header))
+  let row = 2
+  for (const work of works) {
+    // 无有效项目时仍导出命中的事项本身。
+    for (const e of work.executions.length ? work.executions : [{}]) {
+      const values = [work.system, work.deptName, work.title, work.content, work.status, e.company, e.projectName, e.helperNames,
+        e.content, e.status, e.scope, e.firstName, e.firstAt, e.lastName, e.lastAt]
+      values.forEach((value, i) => put(ws, row, i, value, STYLE.body))
+      setRowHeight(ws, row++, 42)
     }
-    if (row.deptName !== lastDept || index === 0) {
-      if (index > 0 && r - 1 > deptStart) merge(ws, deptStart, 2, r - 1, 2)
-      deptStart = r
-      lastDept = row.deptName
-      put(ws, r, 2, row.deptName, STYLE.center)
-    } else {
-      put(ws, r, 2, '', STYLE.center)
-    }
-    put(ws, r, 3, row.title, STYLE.body)
-    put(ws, r, 4, row.result, STYLE.body)
-    put(ws, r, 5, row.problem, STYLE.body)
-    put(ws, r, 6, row.suggestion, STYLE.body)
-    setRowHeight(ws, r, 34)
-  })
-  if (rows.length) {
-    const last = rows.length + 1
-    if (last > systemStart) {
-      merge(ws, systemStart, 0, last, 0)
-      merge(ws, systemStart, 1, last, 1)
-    }
-    if (last > deptStart) merge(ws, deptStart, 2, last, 2)
   }
-  setCols(ws, [6, 10, 18, 34, 42, 28, 30])
-  finish(ws, rows.length + 2, 7)
+  setCols(ws, [12, 22, 26, 44, 12, 18, 25, 25, 45, 12, 12, 14, 23, 14, 23])
+  finish(ws, row, headers.length)
   const wb = newBook()
-  addSheet(wb, ws, '重点工作梳理清单')
-  download(wb, `重点工作梳理清单_${todayStr().replace(/-/g, '')}.xlsx`)
-}
-
-/* ---------- 附件2 项目诉求办理清单 ---------- */
-export function exportAppealsExcel (projectId) {
-  const db = store.db
-  const rows = buildAppealList(db, projectId)
-  const project = projectId ? store.getProject(projectId) : null
-  const headers = ['序号', '诉求事项', '具体描述', '主责部门', '责任人', '推进计划', '完成时限']
-  const ws = {}
-  put(ws, 0, 0, '项目诉求办理清单', STYLE.title)
-  merge(ws, 0, 0, 0, 6)
-  setRowHeight(ws, 0, 30)
-  put(ws, 1, 0, `项目：${project ? project.name : '全部项目'}　　导出日期：${todayStr()}`, STYLE.summary)
-  merge(ws, 1, 0, 1, 6)
-  setRowHeight(ws, 1, 22)
-  headers.forEach((h, c) => put(ws, 2, c, h, STYLE.header))
-  setRowHeight(ws, 2, 28)
-  rows.forEach((row, index) => {
-    const r = index + 3
-    put(ws, r, 0, index + 1, STYLE.center)
-    put(ws, r, 1, row.title, STYLE.body)
-    put(ws, r, 2, row.desc, STYLE.body)
-    put(ws, r, 3, row.deptName, STYLE.center)
-    put(ws, r, 4, row.personName, STYLE.center)
-    put(ws, r, 5, row.plan, STYLE.body)
-    put(ws, r, 6, row.dueDate, STYLE.center)
-    setRowHeight(ws, r, 40)
-  })
-  setCols(ws, [6, 26, 46, 16, 9, 42, 12])
-  finish(ws, rows.length + 3, 7)
-  const wb = newBook()
-  addSheet(wb, ws, '项目诉求办理清单')
-  download(wb, `项目诉求办理清单_${safeName(project ? project.name : '全部项目')}_${todayStr().replace(/-/g, '')}.xlsx`)
-}
-
-/* ---------- 附件3 制度改进建议清单 ---------- */
-export function exportSuggestionsExcel () {
-  const db = store.db
-  const rows = buildSuggestionList(db)
-  const headers = ['序号', '建议事项', '涉及制度/流程', '问题描述', '提出人/部门', '主责部门', '回复意见', '整改计划', '完成时限']
-  const ws = {}
-  put(ws, 0, 0, '制度改进建议清单', STYLE.title)
-  merge(ws, 0, 0, 0, 8)
-  setRowHeight(ws, 0, 30)
-  headers.forEach((h, c) => put(ws, 1, c, h, STYLE.header))
-  setRowHeight(ws, 1, 30)
-  rows.forEach((row, index) => {
-    const r = index + 2
-    put(ws, r, 0, index + 1, STYLE.center)
-    put(ws, r, 1, row.title, STYLE.body)
-    put(ws, r, 2, row.flow, STYLE.body)
-    put(ws, r, 3, row.desc, STYLE.body)
-    put(ws, r, 4, row.proposer, STYLE.center)
-    put(ws, r, 5, row.deptName, STYLE.center)
-    put(ws, r, 6, row.replyText, STYLE.body)
-    put(ws, r, 7, row.plan, STYLE.body)
-    put(ws, r, 8, row.deadline, STYLE.center)
-    setRowHeight(ws, r, 40)
-  })
-  setCols(ws, [6, 26, 24, 44, 18, 18, 32, 34, 12])
-  finish(ws, rows.length + 2, 9)
-  const wb = newBook()
-  addSheet(wb, ws, '制度改进建议清单')
-  download(wb, `制度改进建议清单_${todayStr().replace(/-/g, '')}.xlsx`)
+  addSheet(wb, ws, '重点工作执行情况')
+  download(wb, '重点工作执行情况_' + todayStr() + '.xlsx')
 }
 
 /* ---------- 附件4 日报 ---------- */
@@ -296,10 +184,15 @@ function mergeGroups (ws, rows, startRow, colsToMerge) {
   let groupStart = 0
   const applyMerge = (start, end) => {
     if (end <= start) return
+    const group = rows.slice(start, end + 1)
+    if (new Set(group.map(r => r.needs)).size > 1) {
+      const notes = group.filter(r => r.needs).map(r => r.date + '　' + r.needs)
+      put(ws, startRow + start, 5, notes.join('\n'), STYLE.body)
+    }
     colsToMerge.forEach(c => merge(ws, startRow + start, c, startRow + end, c))
   }
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i].personName !== rows[i - 1].personName || rows[i].projectName !== rows[i - 1].projectName) {
+    if (rows[i].personId !== rows[i - 1].personId || rows[i].projectName !== rows[i - 1].projectName) {
       applyMerge(groupStart, i - 1)
       groupStart = i
     }
@@ -332,9 +225,9 @@ export function exportWeeklyExcel (start, end) {
   let lastPerson = null
   let personSeq = 0
   report.absentRows.forEach((row) => {
-    if (row.personName !== lastPerson) {
+    if (row.personId !== lastPerson) {
       personSeq += 1
-      lastPerson = row.personName
+      lastPerson = row.personId
     }
     put(ws, r, 0, personSeq, STYLE.center)
     put(ws, r, 1, row.personName, STYLE.center)
@@ -362,9 +255,9 @@ export function exportWeeklyExcel (start, end) {
   lastPerson = null
   personSeq = 0
   report.serviceRows.forEach((row) => {
-    if (row.personName !== lastPerson) {
+    if (row.personId !== lastPerson) {
       personSeq += 1
-      lastPerson = row.personName
+      lastPerson = row.personId
     }
     put(ws, r, 0, personSeq, STYLE.center)
     put(ws, r, 1, row.personName, STYLE.center)

@@ -1367,3 +1367,17 @@ a {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+/* 服务项目业务表单及个人工作统计。 */
+.switch-person { z-index: 1; color: white; cursor: pointer; font: inherit; font-size: 11px; }
+.switch-person:hover { background: rgba(25, 83, 141, .4); }
+.module-item.child { padding-left: 29px; height: 30px; font-size: 12px; }
+.form-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); column-gap:20px; }
+.form-grid .ant-select { width:100%; }
+.readonly-box { background:#f6f8fb; color:#425971; padding:5px 10px; border:1px solid #e6edf4; border-radius:3px; min-height:32px; line-height:20px; }
+.ant-modal-body { max-height:calc(100vh - 210px); overflow-y:auto; }
+.detail-grid + .drawer-section, .detail-grid + .approval-nodes { margin-top:16px; }
+.work-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); border:1px solid #e2edf7; border-radius:3px; margin-bottom:14px; background:#f8fbff; }
+.work-summary > div { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px; color:#536a81; }
+.work-summary > div + div { border-left:1px solid #e2edf7; }
+.work-summary b { font-size:20px; }
+.pre-line { white-space:pre-line; }

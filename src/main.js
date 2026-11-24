@@ -10,6 +10,10 @@ import './styles/global.css'
 Vue.config.productionTip = false
 Vue.use(Antd)
 store.init()
+window.addEventListener('storage', store.refreshFromStorage)
+function refreshDay () { store.state.day = todayStr() }
+window.addEventListener('focus', refreshDay)
+window.setInterval(refreshDay, 30000)
 
 Vue.prototype.$store = store
 Vue.prototype.$today = todayStr

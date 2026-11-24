@@ -1,1382 +1,203 @@
 import Vue from 'vue'
-import { buildSeed, CURRENT_USER_ID, PLANNER, ARCHIVER } from '../data/seed'
-import { nowStr, todayStr, isFrozen, datesBetween, isWeekend, recentReportDays } from '../utils/date'
+import { buildSeed, SCHEMA_VERSION } from '../data/seed'
 import { migrateDb } from './migrate'
+import { nowStr, todayStr } from '../utils/date'
+import { nextCode } from '../utils/businessCodes'
+import { PROJECT, DEPARTMENT, staffOrg, targetOf, relationValues, effectiveRelations, personName, syncExecutions, workRows, myWork } from '../utils/serviceData'
+import { dailyRows, pendingReport, reportBody, dailyEligible, validateReport } from '../utils/reportData'
+import { submitAppeal, reviewAppeal, requestClosure, submitSuggestion, replySuggestion, appealStats } from '../utils/workflow'
 
 const STORAGE_KEY = 'hq_enablement_db_v5'
-const state = Vue.observable({ db: null })
+const ACTOR_KEY = 'service_project_demo_person'
+const state = Vue.observable({ db: null, actorId: 'P01', day: todayStr() })
 
-function nextCode (list, prefix, len = 4) {
-  let max = 0
-  list.forEach(item => {
-    let id = String(item.id || '')
-    if (id.indexOf(prefix) === 0) id = id.slice(prefix.length)
-    const m = id.match(/^(\d+)$/)
-    if (m) max = Math.max(max, parseInt(m[1], 10))
-  })
-  return `${prefix}${String(max + 1).padStart(len, '0')}`
+function cachedDb () {
+  const raw = localStorage.getItem(STORAGE_KEY)
+  return raw ? JSON.parse(raw) : null
 }
 
-function clone (value) {
-  return JSON.parse(JSON.stringify(value))
+function relationChange (db, r, action, actor) {
+  const target = targetOf(db, r.type, r.targetId)
+  r.history.push({ action, operator: actor.name, time: nowStr(), values: relationValues(r),
+    note: [personName(db, r.personId), r.type, target.company, target.name, r.status].join(' · ') })
+  syncExecutions(db)
 }
 
-function findFirstPending (nodes) {
-  return (nodes || []).findIndex(n => n.result === '待处理')
+function duplicateRelation (db, relation) {
+  return db.relations.some(r => r.id !== relation.id && r.status === '启用' && r.personId === relation.personId &&
+    r.type === relation.type && r.targetId === relation.targetId)
 }
 
 const store = {
   state,
+  get db () { return state.db },
+  get currentUser () { return this.getPerson(state.actorId) },
+  getPerson (id) { return this.db.people.find(p => p.id === id) },
+  getDept (id) { return this.db.departments.find(d => d.id === id) },
+  orgOf (person) { return staffOrg(this.db, person) },
 
   init () {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (parsed && parsed.people && parsed.works && parsed.dailyReports) {
-          state.db = migrateDb(parsed)
-          this.syncV14Data()
-          this.refreshDailyWindow()
-          this.syncAllWorkProjectScopes()
-          this.persist()
-          return
-        }
-      }
-    } catch (e) {
-      // 本地数据不可用时重新初始化
-    }
-    state.db = migrateDb(buildSeed())
-    this.syncV14Data()
-    this.refreshDailyWindow()
-    this.syncAllWorkProjectScopes()
-    this.persist()
+    const existing = cachedDb()
+    const db = migrateDb(existing)
+    if (db !== existing) localStorage.setItem(STORAGE_KEY, JSON.stringify(db))
+    state.db = db
+    const saved = sessionStorage.getItem(ACTOR_KEY)
+    state.actorId = this.getPerson(saved) ? saved : 'P01'
+    state.day = todayStr()
   },
-
-  persist () {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.db))
-    } catch (e) {
-      // 存储空间不足时保留内存数据
-    }
-  },
-
   reset () {
-    localStorage.removeItem(STORAGE_KEY)
-    state.db = migrateDb(buildSeed())
-    this.persist()
+    const db = buildSeed()
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db))
+    state.db = db
   },
-
-  get db () {
-    return state.db
-  },
-
-  get currentUser () {
-    return this.getPerson(CURRENT_USER_ID)
-  },
-
-  getPerson (id) {
-    if (!this.db) return null
-    return this.db.people.find(p => p.id === id) || this.db.managers.find(m => m.id === id) || null
-  },
-
-  getDept (id) {
-    return this.db.departments.find(d => d.id === id) || null
-  },
-
-  getProject (id) {
-    return this.db.projects.find(p => p.id === id) || null
-  },
-
-  staffOfDept (deptId) {
-    return this.db.people.filter(p => p.deptId === deptId)
-      .concat(this.db.managers.filter(m => m.deptId === deptId))
-  },
-
-  allStaff () {
-    return this.db.people.concat(this.db.managers)
-  },
-
-  syncV14Data () {
-    // 同一存储键内兼容旧版已删除记录，已提交日报保留原文及关联编号。
-    this.db.appeals.filter(a => a.status === '已删除').forEach(a => this.removeAppealData(a.id))
-    this.syncRelationStatuses()
-  },
-
-  syncRelationStatuses () {
-    const today = todayStr()
-    this.db.relations.forEach(relation => {
-      if (relation.archived || relation.configStatus === '历史归档') {
-        if (!relation.legacyStatus) Vue.set(relation, 'legacyStatus', relation.status)
-        if (relation.configStatus === '历史归档') Vue.set(relation, 'legacyConfigStatus', '历史归档')
-        relation.archived = true
-        relation.configStatus = '停用'
-        relation.status = '停用'
-      } else if (relation.configStatus === '启用' && relation.endDate && relation.endDate < today) {
-        relation.configStatus = '停用'
-        relation.status = '停用'
-        relation.stopReason = `有效期已于 ${relation.endDate} 结束，系统自动停用。`
-        relation.stoppedAt = nowStr()
-        relation.stoppedBy = '系统'
-        relation.history.push({ time: relation.stoppedAt, action: '到期自动停用', operator: '系统', remark: relation.stopReason })
-      }
-    })
-    this.db.dailyReports = this.db.dailyReports.filter(report => report.status === '已提交' || report.legacy ||
-      report.date < today || this.db.relations.some(r => r.personId === report.personId && r.projectId === report.projectId && this.isRelationEffective(r, report.date)))
-  },
-
-  effectiveRelations (date) {
-    const day = date || todayStr()
-    return this.db.relations.filter(r => this.isRelationEffective(r, day))
-  },
-
-  isRelationEffective (relation, date) {
-    if (!relation || relation.archived) return false
-    if (relation.configStatus !== '启用') return false
-    const day = date || todayStr()
-    if (relation.startDate && relation.startDate > day) return false
-    if (relation.endDate && relation.endDate < day) return false
-    return true
-  },
-
-  relationValidity (relation, date) {
-    if (!relation) return ''
-    if (relation.archived || relation.configStatus === '历史归档') return '已停用'
-    if (relation.configStatus !== '启用') return '已停用'
-    const day = date || todayStr()
-    if (relation.startDate && relation.startDate > day) return '未到生效日'
-    if (relation.endDate && relation.endDate < day) return '已过结束日'
-    return '当前有效'
-  },
-
-  relationsOfPerson (personId) {
-    return this.effectiveRelations().filter(r => r.personId === personId)
-  },
-
-  relationsOfProject (projectId) {
-    return this.effectiveRelations().filter(r => r.projectId === projectId)
-  },
-
-  projectsOfPerson (personId) {
-    const ids = [...new Set(this.relationsOfPerson(personId).map(r => r.projectId))]
-    return this.db.projects.filter(p => ids.indexOf(p.id) > -1)
-  },
-
-  peopleOfProject (projectId) {
-    const ids = this.relationsOfProject(projectId).map(r => r.personId)
-    return this.db.people.filter(p => ids.indexOf(p.id) > -1)
-  },
-
-  appealsOf (personId, projectId, includeClosed = false) {
-    return this.db.appeals.filter(a => {
-      if (a.status === '已删除') return false
-      if (personId && a.personId !== personId) return false
-      if (projectId && a.projectId !== projectId) return false
-      if (!includeClosed && a.status === '已销项') return false
-      return true
-    })
-  },
-
-  reportFor (date, personId, projectId, appealId) {
-    return this.db.dailyReports.find(r =>
-      !r.legacy &&
-      r.date === date &&
-      r.personId === personId &&
-      r.projectId === projectId &&
-      r.appealId === appealId
-    ) || null
-  },
-
-  reportsForDate (date) {
-    const deleted = new Set(this.db.appeals.filter(a => a.status === '已删除').map(a => a.id))
-    return this.db.dailyReports.filter(r => !r.legacy && !r.appealDeleted && r.date === date && !deleted.has(r.appealId))
-  },
-
-  workById (id) {
-    return this.db.works.find(w => w.id === id)
-  },
-
-  currentWorkRows (work) {
-    return (work && work.projectExecutions ? work.projectExecutions : []).filter(e => e.inScope !== false)
-  },
-
-  getWorkProgress (work) {
-    const rows = this.currentWorkRows(work)
-    const missing = rows.filter(e => !(e.content || '').trim() || e.needsConfirm).map(e => ({
-      projectId: e.projectId,
-      projectName: e.projectName,
-      reason: e.needsConfirm ? '需重新确认' : '未填写'
-    }))
-    return { A: rows.length - missing.length, B: rows.length, missing }
-  },
-
-  syncWorkProjectScope (work, date) {
-    if (!work || work.status !== '落实中') return this.getWorkProgress(work)
-    const day = date || todayStr()
-    if (!Array.isArray(work.projectExecutions)) work.projectExecutions = []
-    const projectIds = [...new Set(this.db.relations
-      .filter(r => r.personId === work.leadId && this.isRelationEffective(r, day))
-      .map(r => r.projectId))]
-    const leadChanged = !!work.lastSyncedLeadId && work.lastSyncedLeadId !== work.leadId
-    const byProject = {}
-    const seen = new Set()
-    work.projectExecutions.forEach(row => {
-      if (seen.has(row.projectId)) {
-        row.inScope = false
-        row.removedReason = '重复项目记录归档'
-        row.removedAt = nowStr()
-        return
-      }
-      seen.add(row.projectId)
-      if (!byProject[row.projectId]) byProject[row.projectId] = row
-    })
-    projectIds.forEach(projectId => {
-      const project = this.getProject(projectId)
-      let row = byProject[projectId]
-      if (!row) {
-        row = {
-          id: `WPE${work.id.slice(-3)}${projectId}`,
-          projectId,
-          projectName: project ? project.name : '',
-          content: '',
-          attachments: [],
-          updatedAt: nowStr(),
-          inScope: true,
-          needsConfirm: false,
-          removedReason: '',
-          removedAt: ''
-        }
-        work.projectExecutions.push(row)
-        byProject[projectId] = row
-      } else if (row.inScope === false) {
-        row.inScope = true
-        row.needsConfirm = true
-        row.removedReason = ''
-        row.removedAt = ''
-      } else if (leadChanged) {
-        row.needsConfirm = true
-      }
-    })
-    work.projectExecutions.forEach(row => {
-      if (row.inScope !== false && projectIds.indexOf(row.projectId) === -1) {
-        row.inScope = false
-        row.needsConfirm = false
-        row.removedReason = '牵头人有效帮扶关系调整'
-        row.removedAt = nowStr()
-      }
-    })
-    work.lastScopeSyncDate = day
-    work.lastSyncedLeadId = work.leadId
-    return this.getWorkProgress(work)
-  },
-
-  syncAllWorkProjectScopes (date) {
-    const day = date || todayStr()
-    this.db.works.filter(w => w.status === '落实中').forEach(work => this.syncWorkProjectScope(work, day))
-    return this.db.works.filter(w => w.status === '落实中').length
-  },
-
-  /* ---------------- 帮扶关系 ---------------- */
-  createRelations (payload) {
-    const { personIds, projectIds, role, startDate, endDate, remark } = payload
-    const created = []
-    const skipped = []
-    const batchPrefix = `B${todayStr().replace(/-/g, '')}`
-    const batchMax = Math.max(0, ...this.db.relations
-      .filter(r => r.batchId && r.batchId.indexOf(batchPrefix) === 0)
-      .map(r => parseInt(r.batchId.slice(batchPrefix.length), 10) || 0))
-    const batchId = `${batchPrefix}${String(batchMax + 1).padStart(3, '0')}`
-    personIds.forEach(personId => {
-      const person = this.getPerson(personId)
-      projectIds.forEach(projectId => {
-        const project = this.getProject(projectId)
-        const overlap = this.db.relations.find(r => {
-          if (r.archived || r.configStatus !== '启用') return false
-          if (r.personId !== personId || r.projectId !== projectId) return false
-          const relEnd = r.endDate || '9999-12-31'
-          const newEnd = endDate || '9999-12-31'
-          return startDate <= relEnd && newEnd >= r.startDate
-        })
-        if (overlap) {
-          skipped.push(`${person.name} — ${project.name}（已存在启用关系 ${overlap.id}）`)
-          return
-        }
-        const relation = {
-          id: nextCode(this.db.relations, `BF${todayStr().slice(0, 4)}`, 4),
-          batchId,
-          personId,
-          personName: person.name,
-          deptId: person.deptId,
-          deptName: this.getDept(person.deptId).name,
-          projectId,
-          projectName: project.name,
-          projectManager: project.manager,
-          role,
-          startDate,
-          endDate: endDate || '',
-          remark: remark || '',
-          configStatus: '启用',
-          status: '启用',
-          archived: false,
-          stoppedAt: '',
-          stoppedBy: '',
-          stopReason: '',
-          createdAt: nowStr(),
-          history: [{ time: nowStr(), action: '新增并启用', operator: PLANNER.name, remark: remark || '新增帮扶关系并直接启用。' }]
-        }
-        this.db.relations.unshift(relation)
-        created.push(relation)
-      })
-    })
-    this.syncRelationStatuses()
-    this.syncAllWorkProjectScopes()
-    this.persist()
-    return { created, skipped }
-  },
-
-  submitRelations (ids) {
-    const targets = this.db.relations.filter(r => ids.indexOf(r.id) > -1 && (r.status === '草稿' || r.status === '已驳回'))
-    const batches = [...new Set(targets.map(r => r.batchId))]
-    this.db.relations.forEach(r => {
-      if (batches.indexOf(r.batchId) > -1 && (r.status === '草稿' || r.status === '已驳回')) {
-        r.status = '待审批'
-        r.approvals = [
-          { key: 'eng', name: '工程管理部审批', approver: this.getDept('D01').manager, result: '待处理', time: '', comment: '' },
-          { key: 'plan', name: '企划部审批', approver: ARCHIVER.name, result: '待处理', time: '', comment: '' }
-        ]
-        r.history.push({ time: nowStr(), action: '提交联合审批', operator: r.plannerName, remark: '提交工程管理部、企划部联合审批。' })
-      }
-    })
-    this.persist()
-    return batches
-  },
-
-  updateRelation (id, payload) {
-    const relation = this.db.relations.find(r => r.id === id)
-    if (!relation) return { ok: false, message: '未找到帮扶关系' }
-    if (relation.archived) return { ok: false, message: '历史归档关系只读' }
-    const startDate = payload.startDate
-    const endDate = payload.endDate || ''
-    if (!startDate) return { ok: false, message: '请选择开始日期' }
-    if (endDate && endDate < startDate) return { ok: false, message: '结束日期不得早于开始日期' }
-    if (relation.configStatus === '启用') {
-      const conflict = this.db.relations.find(r =>
-        r.id !== relation.id &&
-        !r.archived &&
-        r.configStatus === '启用' &&
-        r.personId === relation.personId &&
-        r.projectId === relation.projectId &&
-        startDate <= (r.endDate || '9999-12-31') &&
-        (endDate || '9999-12-31') >= r.startDate
-      )
-      if (conflict) return { ok: false, message: `与现有启用关系 ${conflict.id} 日期重叠` }
+  refreshFromStorage (event) {
+    if (event.key === STORAGE_KEY && event.newValue) {
+      const db = JSON.parse(event.newValue)
+      if (db.schemaVersion === SCHEMA_VERSION) state.db = db
     }
-    Object.assign(relation, {
-      role: payload.role,
-      startDate,
-      endDate,
-      remark: payload.remark || ''
-    })
-    relation.history.push({ time: nowStr(), action: '编辑关系', operator: PLANNER.name, remark: payload.remark || '编辑帮扶关系配置。' })
-    this.syncRelationStatuses()
-    this.ensureRelationReportTask(relation)
-    this.syncAllWorkProjectScopes()
-    this.persist()
+  },
+  selectPerson (id) {
+    if (this.getPerson(id)) {
+      sessionStorage.setItem(ACTOR_KEY, id)
+      state.actorId = id
+    }
+  },
+
+  // 从最新缓存读取，在副本上完成一个业务操作，写入成功后才发布给页面。
+  change (edit) {
+    const db = cachedDb()
+    if (!db || db.schemaVersion !== SCHEMA_VERSION) return { ok: false, message: '演示数据已变化，请刷新后重试' }
+    const error = edit(db, db.people.find(p => p.id === state.actorId))
+    if (error) return { ok: false, message: error }
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(db))
+    } catch (error) {
+      return { ok: false, message: '浏览器未能保存更改：' + error.message }
+    }
+    state.db = db
     return { ok: true }
   },
 
-  stopRelation (id, reason) {
-    const relation = this.db.relations.find(r => r.id === id)
-    if (!relation) return { ok: false, message: '未找到帮扶关系' }
-    if (relation.archived) return { ok: false, message: '历史归档关系只读' }
-    if (relation.configStatus !== '启用') return { ok: false, message: '该关系已停用' }
-    if (!reason || !reason.trim()) return { ok: false, message: '请填写停用原因' }
-    const today = todayStr()
-    if (this.isRelationEffective(relation, today)) {
-      const activeAppeals = this.db.appeals.filter(a =>
-        a.status === '办理中' && a.personId === relation.personId && a.projectId === relation.projectId
-      )
-      const other = this.db.relations.some(r =>
-        r.id !== relation.id && this.isRelationEffective(r, today) &&
-        r.personId === relation.personId && r.projectId === relation.projectId
-      )
-      if (activeAppeals.length && !other) {
-        return { ok: false, message: `该项目仍有 ${activeAppeals.length} 条办理中诉求由该人员承办，请先转办或销项后再停用` }
+  saveRelation (form, id) {
+    return this.change((db, actor) => {
+      const person = db.people.find(p => p.id === form.personId && p.orgType === '总部')
+      const target = targetOf(db, form.type, form.targetId)
+      if (!person || ![PROJECT, DEPARTMENT].includes(form.type) || !target || target.company !== form.company) return '请选择总部人员、分公司和对应的帮扶对象'
+      const original = id && db.relations.find(r => r.id === id)
+      if (id && !original) return '未找到帮扶关系'
+      const r = original || { id: nextCode(db.relations, 'BF'), status: '启用', history: [] }
+      Object.assign(r, { personId: person.id, type: form.type, targetId: target.id })
+      if (r.status === '启用' && duplicateRelation(db, r)) return '该人员与该对象已有启用关系'
+      if (!original) db.relations.unshift(r)
+      relationChange(db, r, original ? '编辑' : '新增', actor)
+    })
+  },
+  setRelationStatus (id, status) {
+    return this.change((db, actor) => {
+      const r = db.relations.find(r => r.id === id)
+      if (!r || !['启用', '停用'].includes(status) || status === r.status) return '帮扶关系状态已变更'
+      if (status === '启用' && duplicateRelation(db, r)) return '该人员与该对象已有启用关系'
+      r.status = status
+      relationChange(db, r, status, actor)
+    })
+  },
+  saveWork (form, id) {
+    return this.change((db, actor) => {
+      if (!form.title.trim() || !form.content.trim() || !db.systems.includes(form.system) ||
+        !db.departments.some(d => d.id === form.deptId && d.system === form.system) || !['启用', '停用'].includes(form.status)) {
+        return '请填写体系、归属部门、重点工作名称、内容和状态'
       }
-    }
-    relation.configStatus = '停用'
-    relation.status = '停用'
-    relation.stopReason = reason
-    relation.stoppedAt = nowStr()
-    relation.stoppedBy = this.currentUser.name
-    relation.history.push({ time: nowStr(), action: '停用关系', operator: this.currentUser.name, remark: reason })
-    this.syncAllWorkProjectScopes()
-    this.persist()
-    return { ok: true }
+      const original = id && db.works.find(w => w.id === id)
+      if (id && !original) return '未找到重点工作'
+      const work = original || { id: nextCode(db.works, 'ZDGZ'), creatorId: actor.id, createdAt: nowStr(), executions: [] }
+      Object.assign(work, { title: form.title.trim(), content: form.content.trim(), system: form.system, deptId: form.deptId, status: form.status })
+      if (!original) db.works.unshift(work)
+      syncExecutions(db)
+    })
   },
-
-  enableRelation (id) {
-    const relation = this.db.relations.find(r => r.id === id)
-    if (!relation) return { ok: false, message: '未找到帮扶关系' }
-    if (relation.archived || relation.configStatus === '历史归档') return { ok: false, message: '历史归档关系不可重新启用' }
-    if (relation.configStatus === '启用') return { ok: false, message: '该关系已启用' }
-    if (relation.endDate && relation.endDate < todayStr()) return { ok: false, message: '有效期已结束，请先调整结束日期再启用' }
-    if (relation.endDate && relation.endDate < relation.startDate) return { ok: false, message: '结束日期不得早于开始日期' }
-    const conflict = this.db.relations.find(r =>
-      r.id !== relation.id && !r.archived && r.configStatus === '启用' &&
-      r.personId === relation.personId && r.projectId === relation.projectId &&
-      relation.startDate <= (r.endDate || '9999-12-31') &&
-      (relation.endDate || '9999-12-31') >= r.startDate
-    )
-    if (conflict) return { ok: false, message: `与现有启用关系 ${conflict.id} 日期重叠` }
-    relation.configStatus = '启用'
-    relation.status = '启用'
-    relation.stopReason = ''
-    relation.stoppedAt = ''
-    relation.stoppedBy = ''
-    relation.history.push({ time: nowStr(), action: '启用关系', operator: this.currentUser.name, remark: '重新启用帮扶关系。' })
-    this.ensureRelationReportTask(relation)
-    this.syncAllWorkProjectScopes()
-    this.persist()
-    return { ok: true }
+  setWorkStatus (id, status) {
+    return this.change(db => {
+      const work = db.works.find(w => w.id === id)
+      if (!work || !['启用', '停用'].includes(status) || work.status === status) return '事项状态已变更'
+      work.status = status
+      syncExecutions(db)
+    })
   },
-
-  appealNeedsSnapshot (appeal) {
-    if (!appeal) return ''
-    return `${appeal.title || ''}；${appeal.desc || ''}`
+  saveExecution (workId, projectId, form) {
+    return this.change((db, actor) => {
+      const work = db.works.find(w => w.id === workId)
+      const row = work && work.executions.find(e => e.projectId === projectId)
+      if (!row || work.status !== '启用' || !effectiveRelations(db).some(r => r.type === PROJECT && r.targetId === projectId)) return '该事项或项目已退出当前填报范围'
+      if (!form.content.trim()) return '请填写项目落实情况'
+      const time = nowStr()
+      if (!row.firstAt) Object.assign(row, { firstAt: time, firstBy: actor.id })
+      Object.assign(row, { content: form.content.trim(), attachments: form.attachments, lastAt: time, lastBy: actor.id })
+    })
   },
+  personalWork () { return myWork(this.db, state.actorId) },
 
-  createDailyTask (appeal, relation, date) {
-    if (!appeal || !relation || appeal.status !== '办理中') return
-    if (this.reportFor(date, appeal.personId, appeal.projectId, appeal.id)) return
-    this.db.dailyReports.push({
-      id: `RB${date.replace(/-/g, '')}${appeal.id}`,
-      date,
-      personId: appeal.personId,
-      personName: appeal.personName,
-      deptId: appeal.deptId,
-      deptName: appeal.deptName,
-      projectId: appeal.projectId,
-      projectName: appeal.projectName,
-      appealId: appeal.id,
-      appealTitle: appeal.title,
-      appealDesc: appeal.desc,
-      projectNeeds: this.appealNeedsSnapshot(appeal),
-      attend: null,
-      absentReason: '',
-      workContent: '',
-      newIssues: '',
-      status: '未填写',
-      frozen: isFrozen(date),
-      submitTime: '',
-      legacy: false,
-      revisions: []
+  saveReport (row, form, revisionReason) {
+    return this.change((db, actor) => {
+      const error = validateReport(form)
+      if (error) return error
+      const existing = db.dailyReports.find(r => r.personId === row.personId && r.date === row.date)
+      const revising = revisionReason !== undefined
+      if (revising && (!existing || !revisionReason.trim())) return '仅可修订已提交的日报，并须填写修订原因'
+      const relations = effectiveRelations(db, row.date)
+      if (!revising && (row.date !== todayStr() || !dailyEligible(db, row.date, relations).has(row.personId))) return '该人员当前不在当日填报范围'
+      const person = db.people.find(p => p.id === row.personId)
+      const record = existing || pendingReport(db, person, row.date, relations)
+      if (!existing && row.projects.map(p => p.id).join() !== record.projects.map(p => p.id).join()) return '帮扶项目已调整，请重新打开日报'
+      const after = reportBody(form)
+      if (after.attend) after.absentReason = ''
+      else after.workContent = ''
+      const time = nowStr()
+      if (revising) record.revisions.push({ time, operator: actor.name, reason: revisionReason.trim(), before: reportBody(record), after })
+      Object.assign(record, after, { status: '已提交', submitTime: revising ? record.submitTime : time })
+      if (!existing) db.dailyReports.push(record)
     })
   },
 
-  refreshDailyWindow () {
-    const days = recentReportDays(7)
-    const today = todayStr()
-    this.db.dailyReports.forEach(report => {
-      report.frozen = report.date < today
-    })
-    this.db.appeals.filter(a => a.status === '办理中').forEach(appeal => {
-      const createdDate = (appeal.createdAt || '').slice(0, 10)
-      days.forEach(day => {
-        if (createdDate && createdDate > day) return
-        const dayRelation = this.db.relations.find(r =>
-          this.isRelationEffective(r, day) && r.personId === appeal.personId && r.projectId === appeal.projectId
-        )
-        if (!dayRelation) return
-        this.createDailyTask(appeal, dayRelation, day)
-      })
+  saveAppeal (form, id) { return this.change((db, actor) => submitAppeal(db, form, actor, nowStr(), id)) },
+  reviewAppeal (id, stage, approved, handlerId, comment) {
+    return this.change((db, actor) => reviewAppeal(db, id, stage, approved, handlerId, comment, actor, nowStr()))
+  },
+  requestClosure (id, form) { return this.change((db, actor) => requestClosure(db, id, form, actor, nowStr())) },
+  saveSuggestion (form, id) { return this.change((db, actor) => submitSuggestion(db, form, actor, nowStr(), id)) },
+  replySuggestion (id, form) { return this.change((db, actor) => replySuggestion(db, id, form, actor, nowStr())) },
+  removeRequest (type, id) {
+    return this.change(db => {
+      const row = db[type].find(r => r.id === id)
+      const allowed = type === 'appeals' ? ['待审批', '已退回', '办理中'] : ['待回复']
+      if (!row || row.deleted || !allowed.includes(row.status) || row.completion) return '当前状态不允许删除'
+      row.deleted = true
     })
   },
 
-  ensureRelationReportTask (relation) {
-    const today = todayStr()
-    if (!this.isRelationEffective(relation, today)) return
-    this.db.appeals
-      .filter(a => a.status === '办理中' && a.personId === relation.personId && a.projectId === relation.projectId)
-      .forEach(appeal => this.createDailyTask(appeal, relation, today))
+  overviewStats () {
+    const relations = effectiveRelations(this.db)
+    const works = workRows(this.db).filter(w => w.status === '启用')
+    const reports = dailyRows(this.db, state.day).filter(r => r.eligible)
+    return { departments: relations.filter(r => r.type === DEPARTMENT).length, projects: relations.filter(r => r.type === PROJECT).length,
+      works: works.length, filled: works.reduce((total, w) => total + w.current.filled, 0),
+      executions: works.reduce((total, w) => total + w.current.total, 0), appeals: appealStats(this.db.appeals),
+      due: reports.length, submitted: reports.filter(r => r.status === '已提交').length }
   },
-
-  approveRelationBatch (batchId, action, comment) {
-    const targets = this.db.relations.filter(r => r.batchId === batchId && r.status === '待审批')
-    if (!targets.length) return { ok: false, message: '当前批次不存在待审批关系' }
-    let finished = false
-    targets.forEach(r => {
-      const idx = findFirstPending(r.approvals)
-      if (idx < 0) return
-      const node = r.approvals[idx]
-      node.time = nowStr()
-      node.comment = comment || ''
-      if (action === 'reject') {
-        node.result = '退回'
-        r.status = '已驳回'
-        r.history.push({ time: nowStr(), action: '审批退回', operator: node.approver, remark: comment || '审批退回。' })
-      } else {
-        node.result = '通过'
-        if (findFirstPending(r.approvals) < 0) {
-          r.status = '已生效'
-          this.ensureRelationReportTask(r)
-          r.history.push({ time: nowStr(), action: '审批生效', operator: node.approver, remark: '联合审批通过，关系生效。' })
-          finished = true
-        } else {
-          r.history.push({ time: nowStr(), action: `${node.name}通过`, operator: node.approver, remark: comment || '同意。' })
-        }
-      }
-    })
-    this.persist()
-    return { ok: true, finished }
-  },
-
-  updateDraftRelation (id, payload) {
-    const relation = this.db.relations.find(r => r.id === id)
-    if (!relation) return
-    Object.assign(relation, {
-      role: payload.role,
-      startDate: payload.startDate,
-      endDate: payload.endDate || '',
-      remark: payload.remark || ''
-    })
-    relation.history.push({ time: nowStr(), action: '修改配置草稿', operator: PLANNER.name, remark: payload.remark || '修改帮扶关系配置。' })
-    this.persist()
-  },
-
-  adjustRelation (id, payload) {    const relation = this.db.relations.find(r => r.id === id)
-    if (!relation) return
-    const before = clone({ role: relation.role, startDate: relation.startDate, endDate: relation.endDate, remark: relation.remark })
-    Object.assign(relation, payload)
-    relation.history.push({
-      time: nowStr(),
-      action: '调整关系',
-      operator: PLANNER.name,
-      remark: `调整前：${before.role}，${before.startDate} 至 ${before.endDate || '长期'}；调整后：${relation.role}，${relation.startDate} 至 ${relation.endDate || '长期'}。${payload.remark || ''}`
-    })
-    if (relation.status === '已生效') this.ensureRelationReportTask(relation)
-    this.persist()
-  },
-
-  invalidateRelation (id, reason) {
-    const relation = this.db.relations.find(r => r.id === id)
-    if (!relation) return { ok: false }
-    relation.status = '已失效'
-    relation.endDate = todayStr()
-    relation.history.push({ time: nowStr(), action: '关系失效', operator: PLANNER.name, remark: reason })
-    const today = todayStr()
-    this.db.dailyReports = this.db.dailyReports.filter(r =>
-      !(r.date === today && r.personId === relation.personId && r.projectId === relation.projectId && r.status !== '已提交')
-    )
-    this.persist()
-    return { ok: true }
-  },
-
-  /* ---------------- 梳理单与重点工作 ---------------- */
-  saveSheet (payload, submit) {
-    const { id, deptId, system, remark, items } = payload
-    let sheet
-    if (id) {
-      sheet = this.db.sheets.find(s => s.id === id)
-      if (!sheet || !['草稿', '已退回'].includes(sheet.status)) return { ok: false, message: '仅草稿或已退回梳理单可编辑' }
-      Object.assign(sheet, { deptId, system, deptName: this.getDept(deptId).name, remark })
-      sheet.items = items.map((item, index) => ({
-        id: item.id || `SLI${sheet.id.slice(-3)}${index + 1}`,
-        seq: index + 1,
-        title: item.title,
-        leadId: item.leadId,
-        leadName: this.getPerson(item.leadId) ? this.getPerson(item.leadId).name : '',
-        leadDeptId: deptId,
-        dueDate: item.dueDate || '',
-        problem: item.problem || '',
-        suggestion: item.suggestion || ''
-      }))
-    } else {
-      sheet = {
-        id: nextCode(this.db.sheets, `ZDGZ${todayStr().slice(0, 4)}`, 4),
-        system,
-        deptId,
-        deptName: this.getDept(deptId).name,
-        creatorId: PLANNER.id,
-        creatorName: PLANNER.name,
-        createDate: todayStr(),
-        remark: remark || '',
-        status: '草稿',
-        createdAt: nowStr(),
-        items: [],
-        approvals: []
-      }
-      sheet.items = items.map((item, index) => ({
-        id: `SLI${sheet.id.slice(-3)}${index + 1}`,
-        seq: index + 1,
-        title: item.title,
-        leadId: item.leadId,
-        leadName: this.getPerson(item.leadId) ? this.getPerson(item.leadId).name : '',
-        leadDeptId: deptId,
-        dueDate: item.dueDate || '',
-        problem: item.problem || '',
-        suggestion: item.suggestion || ''
-      }))
-      this.db.sheets.unshift(sheet)
-    }
-
-    if (id) {
-      const removed = this.db.works.filter(w => w.sheetId === sheet.id && w.seq > sheet.items.length && w.status === '待生效')
-      this.db.works = this.db.works.filter(w => removed.indexOf(w) === -1)
-    }
-
-    if (this.db.works.some(w => w.sheetId === sheet.id && w.status === '待生效')) this.upsertSheetWorks(sheet)
-    if (submit) {
-      sheet.status = '审核中'
-      sheet.approvals = [
-        { key: 'head', name: '部门负责人审核', approver: this.getDept(deptId).manager, result: '待处理', time: '', comment: '' },
-        { key: 'plan', name: '企划部审核', approver: ARCHIVER.name, result: '待处理', time: '', comment: '' }
-      ]
-      if (!sheet.history) sheet.history = []
-      this.upsertSheetWorks(sheet)
-    }
-    this.persist()
-    return sheet
-  },
-
-  upsertSheetWorks (sheet) {
-    sheet.items.forEach((item, index) => {
-      const existing = this.db.works.find(w => w.sheetId === sheet.id && w.seq === item.seq)
-      const base = {
-        sheetId: sheet.id,
-        seq: index + 1,
-        system: sheet.system,
-        deptId: sheet.deptId,
-        deptName: sheet.deptName,
-        title: item.title,
-        leadId: item.leadId,
-        leadName: item.leadName,
-        dueDate: item.dueDate,
-        problem: item.problem,
-        suggestion: item.suggestion
-      }
-      if (existing) {
-        if (existing.status === '待生效') Object.assign(existing, base)
-      } else {
-        this.db.works.unshift({
-          id: nextCode(this.db.works, 'GZ2026', 3),
-          ...base,
-          status: '待生效',
-          createdAt: nowStr(),
-          overallContent: '',
-          overallAttachments: [],
-          projectExecutions: [],
-          executions: [],
-          closeRequest: null,
-          history: [{ time: nowStr(), action: '创建梳理单', operator: PLANNER.name, remark: sheet.remark }]
-        })
-      }
-    })
-  },
-
-  canDeleteSheet (sheet) {
-    return !!sheet && ['草稿', '已退回'].includes(sheet.status) &&
-      !this.db.works.some(w => w.sheetId === sheet.id && w.status !== '待生效')
-  },
-
-  deleteSheet (id) {
-    const sheet = this.db.sheets.find(s => s.id === id)
-    if (!this.canDeleteSheet(sheet)) return { ok: false, message: '仅可删除草稿、已退回且无已生效事项的梳理单' }
-    this.db.works = this.db.works.filter(w => !(w.sheetId === id && w.status === '待生效'))
-    this.db.sheets = this.db.sheets.filter(s => s.id !== id)
-    this.persist()
-    return { ok: true }
-  },
-
-  submitSheetById (id) {
-    const sheet = this.db.sheets.find(s => s.id === id)
-    if (!sheet) return { ok: false, message: '未找到梳理单' }
-    if (sheet.status !== '草稿' && sheet.status !== '已退回') {
-      return { ok: false, message: '当前状态不允许提交创建审批' }
-    }
-    sheet.status = '审核中'
-    sheet.approvals = [
-      { key: 'head', name: '部门负责人审核', approver: this.getDept(sheet.deptId).manager, result: '待处理', time: '', comment: '' },
-      { key: 'plan', name: '企划部审核', approver: ARCHIVER.name, result: '待处理', time: '', comment: '' }
+  todoGroups () {
+    const reports = dailyRows(this.db, state.day).filter(r => r.personId === state.actorId && r.status === '待填写')
+    const pendingWork = this.personalWork().tasks.filter(r => r.status === '待填写')
+    const appeals = this.db.appeals.filter(a => !a.deleted)
+    const item = (path, title, desc) => ({ path, title, desc })
+    return [
+      { key: 'daily', title: '待填日报', color: 'blue', items: reports.map(r => item('/daily', r.personName + ' · ' + r.date, r.projectName)) },
+      { key: 'works', title: '我的重点工作待填', color: 'blue', items: pendingWork.map(r => item('/works/mine?id=' + encodeURIComponent(r.id), r.title, r.projectName)) },
+      { key: 'appeals', title: '诉求办理', color: 'orange', items: appeals.filter(a => ['办理中', '已退回'].includes(a.status))
+        .map(a => item('/appeals?id=' + a.id, a.title, a.status)) },
+      { key: 'approvals', title: '待审批与回复', color: 'red', items: [
+        ...appeals.filter(a => ['待审批', '待销项审批'].includes(a.status)).map(a => item('/appeals?id=' + a.id, a.title, a.status)),
+        ...this.db.suggestions.filter(s => !s.deleted && s.status === '待回复').map(s => item('/suggestions?id=' + s.id, s.title, s.status))
+      ] }
     ]
-    this.upsertSheetWorks(sheet)
-    this.persist()
-    return { ok: true }
-  },
-
-  approveSheet (id, action, comment) {    const sheet = this.db.sheets.find(s => s.id === id)
-    if (!sheet || sheet.status !== '审核中') return { ok: false, message: '当前梳理单不在审核中' }
-    const idx = findFirstPending(sheet.approvals)
-    if (idx < 0) return { ok: false, message: '没有待处理审批节点' }
-    const node = sheet.approvals[idx]
-    node.time = nowStr()
-    node.comment = comment || ''
-    if (action === 'reject') {
-      node.result = '退回'
-      sheet.status = '已退回'
-    } else {
-      node.result = '通过'
-      if (findFirstPending(sheet.approvals) < 0) {
-        sheet.status = '已生效'
-        this.db.works.filter(w => w.sheetId === sheet.id && w.status === '待生效').forEach(w => {
-          w.status = '落实中'
-          w.history.push({ time: nowStr(), action: '创建审批通过', operator: ARCHIVER.name, remark: '梳理单创建审批通过，工作生效。' })
-          this.syncWorkProjectScope(w)
-        })
-      }
-    }
-    this.persist()
-    return { ok: true }
-  },
-
-  saveWorkExecutions (workId, payload) {
-    const work = this.workById(workId)
-    if (!work) return { ok: false, message: '未找到重点工作' }
-    if (work.status !== '落实中') {
-      return { ok: false, message: '当前状态不允许修改执行情况' }
-    }
-    if (!payload.overallContent || !payload.overallContent.trim()) {
-      return { ok: false, message: '请填写总体执行情况' }
-    }
-    this.syncWorkProjectScope(work)
-    const currentIds = new Set(this.currentWorkRows(work).map(e => e.projectId))
-    const projects = payload.projects || []
-    for (const p of projects) {
-      if (!currentIds.has(p.projectId)) {
-        return { ok: false, message: '项目已不在当前有效帮扶范围内，请刷新后重试' }
-      }
-    }
-    const byProject = {}
-    projects.forEach(p => { byProject[p.projectId] = p })
-    this.currentWorkRows(work).forEach(row => {
-      const p = byProject[row.projectId]
-      if (p) {
-        row.content = p.content || ''
-        row.attachments = p.attachments || []
-        row.updatedAt = nowStr()
-      }
-      row.needsConfirm = false
-    })
-    work.overallContent = payload.overallContent
-    work.overallAttachments = payload.overallAttachments || []
-    work.updatedAt = nowStr()
-    const progress = this.getWorkProgress(work)
-    work.history.push({
-      time: nowStr(),
-      action: '更新执行情况',
-      operator: work.leadName,
-      remark: `保存总体执行情况，项目落实进展 ${progress.A}/${progress.B}。`
-    })
-    this.persist()
-    return { ok: true, progress }
-  },
-
-  submitWorkClose (workId, payload) {
-    const work = this.workById(workId)
-    if (!work) return { ok: false, message: '未找到重点工作' }
-    if (work.status !== '落实中') return { ok: false, message: '仅落实中的重点工作可申请销项' }
-    if (work.closeRequest && work.closeRequest.status === '审批中') {
-      return { ok: false, message: '该事项已有进行中的销项申请' }
-    }
-    this.syncWorkProjectScope(work)
-    if (!work.overallContent || !work.overallContent.trim()) {
-      return { ok: false, message: '请先填写总体执行情况' }
-    }
-    const progress = this.getWorkProgress(work)
-    if (progress.B === 0) {
-      return { ok: false, message: '未配置有效帮扶项目，无法申请销项' }
-    }
-    if (progress.A !== progress.B) {
-      return {
-        ok: false,
-        message: `项目落实进展 ${progress.A}/${progress.B}，请补齐：${progress.missing.map(m => m.projectName).join('、')}`
-      }
-    }
-    if (!payload.reason || !payload.reason.trim()) return { ok: false, message: '请填写办结说明' }
-    if (!payload.attachments || !payload.attachments.length) return { ok: false, message: '请上传销项佐证附件' }
-    const projectExecutions = this.currentWorkRows(work).map(e => clone(e))
-    const nodes = []
-    projectExecutions.forEach(e => {
-      const project = this.getProject(e.projectId)
-      nodes.push({ key: `pm_${e.projectId}`, name: `项目经理确认（${project.name}）`, approver: project.manager, result: '待处理', time: '', comment: '' })
-    })
-    nodes.push({ key: 'head', name: '部门负责人审核', approver: this.getDept(work.deptId).manager, result: '待处理', time: '', comment: '' })
-    nodes.push({ key: 'archive', name: '企划归档', approver: ARCHIVER.name, result: '待处理', time: '', comment: '' })
-    work.closeRequest = {
-      id: nextCode(this.db.works.map(w => ({ id: w.closeRequest ? w.closeRequest.id : '' })).filter(w => w.id), 'GZX2026', 3),
-      reason: payload.reason,
-      attachments: payload.attachments || [],
-      executionIds: projectExecutions.map(e => e.id),
-      overallContent: work.overallContent,
-      overallAttachments: clone(work.overallAttachments || []),
-      projectExecutions,
-      progress: { A: progress.A, B: progress.B },
-      submittedBy: work.leadName,
-      submittedAt: nowStr(),
-      status: '审批中',
-      nodes,
-      archivedAt: '',
-      archivedBy: ''
-    }
-    work.status = '销项审批中'
-    work.history.push({ time: nowStr(), action: '提交销项申请', operator: work.leadName, remark: payload.reason })
-    this.persist()
-    return { ok: true }
-  },
-
-  approveWorkClose (workId, action, comment) {
-    const work = this.workById(workId)
-    if (!work || !work.closeRequest) return { ok: false, message: '未找到销项申请' }
-    const close = work.closeRequest
-    if (close.status !== '审批中') return { ok: false, message: '该销项申请已结束' }
-    const idx = findFirstPending(close.nodes)
-    if (idx < 0) return { ok: false, message: '没有待处理审批节点' }
-    const node = close.nodes[idx]
-    node.time = nowStr()
-    node.comment = comment || ''
-    if (action === 'reject') {
-      node.result = '退回'
-      close.status = '已退回'
-      work.status = '落实中'
-      work.history.push({ time: nowStr(), action: '销项退回', operator: node.approver, remark: comment || '销项申请退回。' })
-    } else {
-      node.result = '通过'
-      if (findFirstPending(close.nodes) < 0) {
-        close.status = '已通过'
-        close.archivedAt = nowStr()
-        close.archivedBy = ARCHIVER.name
-        work.status = '已销项'
-        work.history.push({ time: nowStr(), action: '销项归档', operator: ARCHIVER.name, remark: '销项审批通过，企划归档，事项已销项。' })
-      } else {
-        work.history.push({ time: nowStr(), action: `${node.name}通过`, operator: node.approver, remark: comment || '同意。' })
-      }
-    }
-    this.persist()
-    return { ok: true }
-  },
-
-  /* ---------------- 项目诉求 ---------------- */
-  createAppeal (payload) {
-    const appeal = {
-      id: nextCode(this.db.appeals.concat(this.db.dailyReports.map(r => ({ id: r.appealId }))), `XMSQ${todayStr().slice(0, 4)}`, 4),
-      projectId: payload.projectId,
-      projectName: this.getProject(payload.projectId).name,
-      title: payload.title,
-      desc: payload.desc,
-      deptId: payload.deptId,
-      deptName: this.getDept(payload.deptId).name,
-      personId: payload.personId,
-      personName: this.getPerson(payload.personId).name,
-      personPhone: this.getPerson(payload.personId).phone,
-      coDepts: payload.coDepts || [],
-      plan: payload.plan,
-      dueDate: payload.dueDate,
-      source: payload.source,
-      status: '办理中',
-      createdAt: nowStr(),
-      acceptedAt: nowStr(),
-      creatorId: this.currentUser.id,
-      creatorName: this.currentUser.name,
-      latestProgress: '诉求已登记并安排承办人办理。',
-      progress: [],
-      closeRequest: null,
-      attachments: payload.attachments || []
-    }
-    this.db.appeals.unshift(appeal)
-    const relation = this.db.relations.find(r => this.isRelationEffective(r) && r.personId === appeal.personId && r.projectId === appeal.projectId)
-    if (relation) this.createDailyTask(appeal, relation, todayStr())
-    this.persist()
-    return appeal
-  },
-
-  updateAppeal (id, payload) {
-    const appeal = this.db.appeals.find(a => a.id === id)
-    if (!appeal) return { ok: false, message: '未找到诉求' }
-    if (appeal.status === '已删除') return { ok: false, message: '已删除诉求不可编辑' }
-    if (appeal.status !== '办理中') return { ok: false, message: '仅办理中诉求可编辑' }
-    const dueChanged = payload.dueDate && payload.dueDate !== appeal.dueDate
-    if (dueChanged && !payload.extendReason) {
-      return { ok: false, message: '调整完成时限需填写延期原因' }
-    }
-    const personChanged = payload.personId && payload.personId !== appeal.personId
-    if (personChanged) {
-      const person = this.getPerson(payload.personId)
-      if (person) {
-        appeal.personId = person.id
-        appeal.personName = person.name
-        appeal.personPhone = person.phone
-        appeal.deptId = person.deptId
-        appeal.deptName = this.getDept(person.deptId).name
-      }
-    }
-    Object.assign(appeal, {
-      title: payload.title || appeal.title,
-      desc: payload.desc || appeal.desc,
-      plan: payload.plan,
-      dueDate: payload.dueDate,
-      source: payload.source || appeal.source,
-      coDepts: payload.coDepts || appeal.coDepts,
-      attachments: payload.attachments || appeal.attachments
-    })
-    if (personChanged) {
-      this.db.dailyReports = this.db.dailyReports.filter(r => !(r.appealId === appeal.id && r.status !== '已提交'))
-      const relation = this.db.relations.find(r => this.isRelationEffective(r) && r.personId === appeal.personId && r.projectId === appeal.projectId)
-      if (relation) this.createDailyTask(appeal, relation, todayStr())
-    }
-    this.db.dailyReports.filter(r => r.appealId === appeal.id && r.status !== '已提交').forEach(report => {
-      report.appealTitle = appeal.title
-      report.appealDesc = appeal.desc
-      report.projectNeeds = this.appealNeedsSnapshot(appeal)
-    })
-    if (dueChanged) {
-      appeal.latestProgress = `完成时限调整至 ${payload.dueDate}：${payload.extendReason}`
-    }
-    this.persist()
-    return { ok: true }
-  },
-
-  deleteAppeal (id) {
-    const appeal = this.db.appeals.find(a => a.id === id)
-    if (!appeal) return { ok: false, message: '未找到诉求' }
-    if (appeal.creatorId !== this.currentUser.id) return { ok: false, message: '仅诉求发起人可删除' }
-    if (appeal.status !== '办理中') return { ok: false, message: '仅办理中且未进入销项审批的诉求可删除' }
-    this.removeAppealData(id)
-    this.persist()
-    return { ok: true }
-  },
-
-  removeAppealData (id) {
-    this.db.dailyReports = this.db.dailyReports.filter(r => r.appealId !== id || r.status === '已提交')
-    this.db.dailyReports.filter(r => r.appealId === id).forEach(r => Vue.set(r, 'appealDeleted', true))
-    this.db.appeals = this.db.appeals.filter(a => a.id !== id)
-  },
-
-  submitAppealClose (id, payload) {
-    const appeal = this.db.appeals.find(a => a.id === id)
-    if (!appeal) return { ok: false }
-    if (appeal.status !== '办理中') return { ok: false, message: '仅办理中的诉求可申请销项' }
-    if (appeal.closeRequest && appeal.closeRequest.status === '审批中') {
-      return { ok: false, message: '该诉求已有进行中的销项申请' }
-    }
-    const project = this.getProject(appeal.projectId)
-    appeal.closeRequest = {
-      id: nextCode(this.db.appeals.map(a => ({ id: a.closeRequest ? a.closeRequest.id : '' })).filter(a => a.id), 'SQX2026', 3),
-      reason: payload.reason,
-      attachments: payload.attachments || [],
-      submittedBy: appeal.personName,
-      submittedAt: nowStr(),
-      status: '审批中',
-      nodes: [
-        { key: 'pm', name: '项目经理确认', approver: project.manager, result: '待处理', time: '', comment: '' },
-        { key: 'archive', name: '企划归档', approver: ARCHIVER.name, result: '待处理', time: '', comment: '' }
-      ],
-      archivedAt: '',
-      archivedBy: ''
-    }
-    appeal.status = '销项审批中'
-    appeal.progress.push({
-      time: nowStr(),
-      source: '销项',
-      content: `已提交销项申请：${payload.reason}`,
-      operator: appeal.personName
-    })
-    appeal.latestProgress = appeal.progress[appeal.progress.length - 1].content
-    this.persist()
-    return { ok: true }
-  },
-
-  approveAppealClose (id, action, comment) {
-    const appeal = this.db.appeals.find(a => a.id === id)
-    if (!appeal || !appeal.closeRequest) return { ok: false, message: '未找到销项申请' }
-    const close = appeal.closeRequest
-    if (close.status !== '审批中') return { ok: false, message: '该销项申请已结束' }
-    const idx = findFirstPending(close.nodes)
-    if (idx < 0) return { ok: false, message: '没有待处理审批节点' }
-    const node = close.nodes[idx]
-    node.time = nowStr()
-    node.comment = comment || ''
-    if (action === 'reject') {
-      node.result = '退回'
-      close.status = '已退回'
-      appeal.status = '办理中'
-      appeal.progress.push({
-        time: nowStr(),
-        source: '销项',
-        content: `销项申请被${node.approver}退回：${comment || '请补充办结材料后重新提交。'}`,
-        operator: node.approver
-      })
-    } else {
-      node.result = '通过'
-      if (findFirstPending(close.nodes) < 0) {
-        close.status = '已通过'
-        close.archivedAt = nowStr()
-        close.archivedBy = ARCHIVER.name
-        appeal.status = '已销项'
-        this.db.dailyReports = this.db.dailyReports.filter(r => !(r.appealId === appeal.id && r.status !== '已提交'))
-        appeal.progress.push({
-          time: nowStr(),
-          source: '销项',
-          content: `销项申请经项目经理确认、企划归档，诉求办结。${close.reason}`,
-          operator: ARCHIVER.name
-        })
-      } else {
-        appeal.progress.push({
-          time: nowStr(),
-          source: '销项',
-          content: `${node.name}通过：${comment || '同意办结。'}`,
-          operator: node.approver
-        })
-      }
-    }
-    appeal.latestProgress = appeal.progress[appeal.progress.length - 1].content
-    this.persist()
-    return { ok: true }
-  },
-
-  /* ---------------- 日报 ---------------- */
-  saveReport (reportId, payload) {
-    const report = this.db.dailyReports.find(r => r.id === reportId)
-    if (!report) return { ok: false, message: '未找到日报' }
-    if (report.legacy) return { ok: false, message: '历史日报只读' }
-    if (report.date > todayStr()) return { ok: false, message: '尚未到填报日期' }
-    const sourceAppeal = this.db.appeals.find(a => a.id === report.appealId)
-    if (!sourceAppeal || sourceAppeal.status === '已删除') return { ok: false, message: '已删除诉求的历史日报只读' }
-    const validation = this.validateReportContent(payload)
-    if (validation) return { ok: false, message: validation }
-    if (isFrozen(report.date)) {
-      return { ok: false, message: '该日报已冻结，个人不可修改' }
-    }
-    report.frozen = false
-    Object.assign(report, {
-      attend: payload.attend,
-      absentReason: payload.absentReason || '',
-      workContent: payload.workContent || '',
-      newIssues: payload.newIssues || '',
-      status: '已提交',
-      submitTime: nowStr()
-    })
-    const appeal = this.db.appeals.find(a => a.id === report.appealId)
-    if (appeal && (!appeal.latestReportDate || report.date >= appeal.latestReportDate)) {
-      appeal.latestProgress = report.workContent || report.newIssues || '已提交诉求日报。'
-      appeal.latestReportDate = report.date
-      appeal.latestReportId = report.id
-    }
-    this.persist()
-    return { ok: true }
-  },
-
-  reviseReport (reportId, payload, reason) {
-    const report = this.db.dailyReports.find(r => r.id === reportId)
-    if (!report) return { ok: false, message: '未找到日报' }
-    if (report.legacy || report.status !== '已提交') return { ok: false, message: '仅已提交的诉求日报可管理员修订' }
-    if (!reason || !reason.trim()) return { ok: false, message: '请填写修订原因' }
-    const validation = this.validateReportContent(payload)
-    if (validation) return { ok: false, message: validation }
-    const before = {
-      attend: report.attend,
-      absentReason: report.absentReason,
-      workContent: report.workContent,
-      newIssues: report.newIssues
-    }
-    Object.assign(report, {
-      attend: payload.attend,
-      absentReason: payload.absentReason || '',
-      workContent: payload.workContent || '',
-      newIssues: payload.newIssues || '',
-      status: '已提交',
-      submitTime: report.submitTime || nowStr()
-    })
-    if (!report.revisions) report.revisions = []
-    report.revisions.push({
-      time: nowStr(),
-      operator: ARCHIVER.name,
-      reason,
-      before,
-      after: {
-        attend: report.attend,
-        absentReason: report.absentReason,
-        workContent: report.workContent,
-        newIssues: report.newIssues
-      }
-    })
-    const appeal = this.db.appeals.find(a => a.id === report.appealId)
-    if (appeal && (!appeal.latestReportDate || report.date >= appeal.latestReportDate)) {
-      appeal.latestProgress = report.workContent || report.newIssues || '已提交诉求日报。'
-      appeal.latestReportDate = report.date
-      appeal.latestReportId = report.id
-    }
-    this.persist()
-    return { ok: true }
-  },
-
-  validateReportContent (payload) {
-    if (typeof payload.attend !== 'boolean') return '请选择是否到岗'
-    if (!payload.attend && !(payload.absentReason || '').trim()) return '请填写未到岗原因'
-    if (payload.attend && !(payload.workContent || '').trim()) return '请填写当日工作开展情况'
-    return ''
-  },
-
-  /* ---------------- 制度建议 ---------------- */
-  canEditSuggestion (suggestion) {
-    if (!suggestion) return false
-    if (suggestion.status === '已退回') return true
-    return suggestion.status === '待确认' &&
-      !(suggestion.confirmers || []).some(c => c.reply || c.status !== '待确认') &&
-      !(suggestion.nodes || []).some(n => n.result !== '待处理')
-  },
-
-  updateSuggestion (id, payload) {
-    const suggestion = this.db.suggestions.find(s => s.id === id)
-    if (!this.canEditSuggestion(suggestion)) return { ok: false, message: '当前状态不允许编辑建议' }
-    if (!this.getDept(payload.deptId) || !payload.confirmerIds.length ||
-      payload.confirmerIds.some(personId => !this.staffOfDept(payload.deptId).some(p => p.id === personId))) {
-      return { ok: false, message: '请选择主责部门及其确认负责人' }
-    }
-    // 退回重提保留上一轮原文及确认意见，当前轮次仍沿用原有确认、归档流程。
-    if (suggestion.status === '已退回') {
-      if (!suggestion.history) Vue.set(suggestion, 'history', [])
-      suggestion.history.push({ time: nowStr(), action: '修改并重新提交', before: clone({
-        title: suggestion.title, flow: suggestion.flow, desc: suggestion.desc,
-        deptId: suggestion.deptId, confirmers: suggestion.confirmers, nodes: suggestion.nodes,
-        attachments: suggestion.attachments
-      }) })
-    }
-    Object.assign(suggestion, {
-      title: payload.title, flow: payload.flow, desc: payload.desc,
-      deptId: payload.deptId, deptName: this.getDept(payload.deptId).name,
-      confirmerIds: payload.confirmerIds.slice(), attachments: payload.attachments || [],
-      ...this.suggestionFlow(payload.confirmerIds), reply: null, status: '待确认'
-    })
-    this.persist()
-    return { ok: true }
-  },
-
-  deleteSuggestion (id) {
-    const suggestion = this.db.suggestions.find(s => s.id === id)
-    if (!this.canDeleteSuggestion(suggestion)) return { ok: false, message: '仅尚未发生确认操作的建议可删除' }
-    this.db.suggestions = this.db.suggestions.filter(s => s.id !== id)
-    this.persist()
-    return { ok: true }
-  },
-
-  canDeleteSuggestion (suggestion) {
-    return !!suggestion && suggestion.status === '待确认' && this.canEditSuggestion(suggestion) &&
-      !(suggestion.history || []).some(h => h.before && (h.before.nodes || []).some(n => n.result === '通过' || n.result === '退回'))
-  },
-
-  suggestionFlow (confirmerIds) {
-    const confirmers = confirmerIds.map(id => {
-      const p = this.getPerson(id)
-      return { id, name: p.name, title: p.title, status: '待确认', reply: null }
-    })
-    const nodes = confirmers.map(c => ({
-      key: `confirm_${c.id}`, type: 'confirmer', confirmerId: c.id,
-      name: `部门负责人确认（${c.name}）`, approver: c.name,
-      result: '待处理', time: '', comment: ''
-    }))
-    nodes.push({ key: 'archive', type: 'archive', name: '企划部归档', approver: ARCHIVER.name, result: '待处理', time: '', comment: '' })
-    return { confirmers, nodes }
-  },
-
-  createSuggestion (payload) {
-    const proposer = this.currentUser
-    const dept = this.getDept(payload.deptId)
-    const { confirmers, nodes } = this.suggestionFlow(payload.confirmerIds)
-    const suggestion = {
-      id: nextCode(this.db.suggestions, `ZDJY${todayStr().slice(0, 4)}`, 4),
-      title: payload.title,
-      flow: payload.flow,
-      desc: payload.desc,
-      proposerId: proposer.id,
-      proposerName: proposer.name,
-      proposerDeptId: proposer.deptId,
-      proposerDeptName: this.getDept(proposer.deptId).name,
-      deptId: payload.deptId,
-      deptName: dept.name,
-      confirmerIds: payload.confirmerIds,
-      confirmers,
-      nodes,
-      reply: null,
-      status: '待确认',
-      archiveOpinion: '',
-      archivedAt: '',
-      archivedBy: '',
-      createdAt: nowStr(),
-      attachments: payload.attachments || []
-    }
-    this.db.suggestions.unshift(suggestion)
-    this.persist()
-    return suggestion
-  },
-
-  approveSuggestionNode (id, action, payload = {}) {
-    const suggestion = this.db.suggestions.find(s => s.id === id)
-    if (!suggestion) return { ok: false, message: '未找到制度建议' }
-    if (!['待确认', '已回复'].includes(suggestion.status)) return { ok: false, message: '该建议当前不可办理确认或归档' }
-    const idx = findFirstPending(suggestion.nodes)
-    if (idx < 0) return { ok: false, message: '没有待处理流程节点' }
-    const node = suggestion.nodes[idx]
-    const comment = payload.comment || ''
-    if (node.type === 'archive') {
-      if (action === 'reject') {
-        node.result = '退回'
-        node.time = nowStr()
-        node.comment = payload.archiveOpinion || comment
-        suggestion.status = '已回复'
-        this.persist()
-        return { ok: true, rejected: true }
-      }
-      if (!payload.archiveOpinion || !payload.archiveOpinion.trim()) {
-        return { ok: false, message: '请填写归档意见' }
-      }
-      node.result = '通过'
-      node.time = nowStr()
-      node.comment = payload.archiveOpinion
-      suggestion.archiveOpinion = payload.archiveOpinion
-      suggestion.archivedAt = nowStr()
-      suggestion.archivedBy = ARCHIVER.name
-      suggestion.status = '已归档'
-      this.persist()
-      return { ok: true, archived: true }
-    }
-
-    const confirmer = suggestion.confirmers.find(c => c.id === node.confirmerId)
-    if (!confirmer) return { ok: false, message: '未找到确认负责人' }
-    if (action === 'reject') {
-      node.result = '退回'
-      node.time = nowStr()
-      node.comment = payload.reason || comment
-      confirmer.status = '已退回'
-      suggestion.status = '已退回'
-      suggestion.nodes.forEach(n => {
-        if (n.result === '待处理') n.result = '已终止'
-      })
-      this.persist()
-      return { ok: true, rejected: true }
-    }
-    const adopt = payload.adopt
-    if (adopt !== '改' && adopt !== '不改') return { ok: false, message: '请选择回复结论' }
-    if (adopt === '不改' && (!payload.reason || !payload.reason.trim())) {
-      return { ok: false, message: '回复“不改”需说明理由' }
-    }
-    if (adopt === '改' && (!payload.plan || !payload.plan.trim() || !payload.deadline)) {
-      return { ok: false, message: '回复“改”需填写整改计划和完成时限' }
-    }
-    confirmer.reply = {
-      adopt,
-      reason: payload.reason || '',
-      plan: payload.plan || '',
-      deadline: payload.deadline || '',
-      time: nowStr(),
-      operator: confirmer.name,
-      comment
-    }
-    confirmer.status = '已确认'
-    node.result = '通过'
-    node.time = nowStr()
-    node.comment = adopt === '改' ? confirmer.reply.plan : confirmer.reply.reason
-    if (!suggestion.nodes.some(n => n.type === 'confirmer' && n.result === '待处理')) {
-      suggestion.status = '已回复'
-    }
-    this.persist()
-    return { ok: true }
-  },
-
-  /* ---------------- 统计与待办 ---------------- */
-  overviewStats (date) {
-    const day = date || todayStr()
-    const rels = this.effectiveRelations()
-    const serviceCount = new Set(rels.map(r => r.personId)).size
-    const dueReports = this.reportsForDate(day)
-    const submitted = dueReports.filter(r => r.status === '已提交')
-    const expectedPeople = new Set(dueReports.map(r => r.personId)).size
-    const attendedPeople = new Set(submitted.filter(r => r.attend === true).map(r => r.personId)).size
-    const appeals = this.db.appeals.filter(a => a.status !== '已删除')
-    const closed = appeals.filter(a => a.status === '已销项')
-    const processing = appeals.filter(a => a.status === '办理中')
-    const closing = appeals.filter(a => a.status === '销项审批中')
-    return {
-      serviceCount,
-      dueCount: dueReports.length,
-      submittedCount: submitted.length,
-      unfilledCount: dueReports.length - submitted.length,
-      expectedPeople,
-      attendedCount: attendedPeople,
-      attendanceRate: expectedPeople ? Math.round((attendedPeople / expectedPeople) * 1000) / 10 : 0,
-      appealTotal: appeals.length,
-      closedCount: closed.length,
-      processingCount: processing.length,
-      closingCount: closing.length,
-      activeCount: processing.length + closing.length,
-      closeRate: appeals.length ? Math.round((closed.length / appeals.length) * 1000) / 10 : 0,
-      workTotal: this.db.works.filter(w => ['落实中', '销项审批中', '已销项'].includes(w.status)).length,
-      workProcessing: this.db.works.filter(w => w.status === '落实中').length,
-      workClosing: this.db.works.filter(w => w.status === '销项审批中').length,
-      workClosed: this.db.works.filter(w => w.status === '已销项').length,
-      relationCount: rels.length
-    }
-  },
-
-  todos () {
-    const today = todayStr()
-    const myReports = this.db.dailyReports.filter(r => !r.legacy && r.date === today && r.personId === CURRENT_USER_ID && r.status !== '已提交')
-    const myAppeals = this.db.appeals.filter(a => a.personId === CURRENT_USER_ID && a.status === '办理中')
-    const sheets = this.db.sheets.filter(s => s.status === '审核中')
-    const workCloses = this.db.works.filter(w => w.closeRequest && w.closeRequest.status === '审批中')
-    const appealCloses = this.db.appeals.filter(a => a.closeRequest && a.closeRequest.status === '审批中')
-    const suggestions = this.db.suggestions.filter(s => s.status === '待确认' || s.status === '已回复')
-    const approvalCount = sheets.length + workCloses.length + appealCloses.length + suggestions.length
-    return {
-      dailyCount: myReports.length,
-      appealCount: myAppeals.length,
-      approvalCount,
-      sheets,
-      workCloses,
-      appealCloses,
-      suggestions,
-      total: myReports.length + myAppeals.length + approvalCount
-    }
-  },
-
-  reportsForAppeal (appealId) {
-    return this.db.dailyReports
-      .filter(r => r.status === '已提交' && r.appealId === appealId)
-      .slice()
-      .sort((a, b) => b.date.localeCompare(a.date))
-  },
-
-  weekSummary (start, end) {
-    const allDates = datesBetween(start, end)
-    const workDates = allDates.filter(d => !isWeekend(d))
-    const elapsed = workDates.filter(d => d <= todayStr())
-    const reports = this.db.dailyReports.filter(r => !r.legacy && r.date >= start && r.date <= end)
-    const deletedIds = new Set(this.db.appeals.filter(a => a.status === '已删除').map(a => a.id))
-    const validReports = reports.filter(r => !r.appealDeleted && !deletedIds.has(r.appealId))
-    const submitted = validReports.filter(r => r.status === '已提交')
-    const absentRows = submitted.filter(r => r.attend === false).sort((a, b) => a.personName.localeCompare(b.personName, 'zh') || a.date.localeCompare(b.date))
-    const serviceRows = submitted.filter(r => r.attend === true).sort((a, b) => a.personName.localeCompare(b.personName, 'zh') || a.date.localeCompare(b.date))
-    const peopleIds = new Set(this.effectiveRelations().map(r => r.personId))
-    const closed = this.db.appeals.filter(a => a.closeRequest && a.closeRequest.archivedAt && a.closeRequest.archivedAt.slice(0, 10) >= start && a.closeRequest.archivedAt.slice(0, 10) <= end)
-    const activeCount = this.db.appeals.filter(a => a.status === '办理中' || a.status === '销项审批中').length
-    const expected = peopleIds.size * elapsed.length
-    const attendedSet = new Set(submitted.filter(r => r.attend === true).map(r => `${r.personId}|${r.date}`))
-    const attended = attendedSet.size
-    return {
-      start,
-      end,
-      dates: allDates,
-      workDates,
-      elapsedDates: elapsed,
-      personCount: peopleIds.size,
-      expectedCount: expected,
-      submittedCount: submitted.length,
-      attendedCount: attended,
-      attendanceRate: expected ? Math.round((attended / expected) * 1000) / 10 : 0,
-      absentRows,
-      serviceRows,
-      closedCount: closed.length,
-      activeCount,
-      reports: validReports
-    }
   }
 }
 

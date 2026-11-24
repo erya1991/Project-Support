@@ -10,6 +10,7 @@
       <a-icon type="info-circle" /> {{ entityDesc }}
     </div>
 
+    <slot name="summary" />
     <div class="approval-nodes">
       <div v-for="(node, index) in nodes" :key="node.key || index" class="approval-node">
         <div class="approval-dot" :class="dotClass(node)">
@@ -36,6 +37,7 @@
       <div class="approval-current">
         当前待处理：<b>{{ pendingNode.name }}</b>（{{ pendingNode.approver }}）
       </div>
+      <slot />
       <a-textarea
         v-model="comment"
         :rows="3"
