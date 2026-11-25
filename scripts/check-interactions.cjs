@@ -31,7 +31,7 @@ async function main () {
     const denied = res => { assert.equal(res.ok, false); assert.ok(res.message) }
     function scenario (name, fn) {
       setDay(today)
-      store.reset()
+      global.localStorage = memoryStorage()
       store.init()
       store.selectPerson('P01')
       fn()
@@ -60,20 +60,97 @@ async function main () {
       desc: '请协助技术复核。', attachments: [] }
     const suggestionForm = { deptId: 'D02', title: '安全检查指标', flow: '安全检查', desc: '合并同一处重复检查。', attachments: [] }
 
-    scenario('旧缓存只替换一次；V1.6 记录、模拟身份和其他存储键可正确恢复', () => {
-      localStorage.setItem(key, JSON.stringify({ schemaVersion: 8, notes: '旧版演示' }))
+    const backupKey = key + ':backup:v8'
+    scenario('空缓存初始化 V1.6 样例，当前版本刷新沿用业务数据', () => {
+      assert.equal(store.db.schemaVersion, 9)
+      for (const table of ['relations', 'works', 'dailyReports', 'appeals', 'suggestions']) assert.ok(store.db[table].length)
+      assert.equal(localStorage.getItem(backupKey), null)
+      const id = addWork('首次进入后录入', 'D04')
+      const saved = localStorage.getItem(key)
+      store.init()
+      assert.equal(localStorage.getItem(key), saved)
+      assert.ok(store.db.works.some(w => w.id === id))
+    })
+    scenario('V1.4 原文可恢复、在办诉求按原单续办，刷新保留新版修改与模拟身份', () => {
+      const appeal = { id: 'XMSQ20260821', projectId: 'J06', title: '旧版手工录入', desc: '需协调设备',
+        creatorId: 'P01', deptId: 'D03', personId: 'P06', status: '办理中', createdAt: '2026-10-01 08:00',
+        progress: [{ time: '2026-10-02 10:00', source: '进展', operator: '吴启明', content: '已联系设备部' }],
+        attachments: [{ name: '调拨单.pdf' }] }
+      const closing = { ...appeal, id: 'XMSQ20260822', status: '销项审批中', closeRequest: { nodes: [{ key: 'pm' }] } }
+      const incomplete = { ...appeal, id: 'XMSQ20260823', progress: [null] }
+      const legacy = { schemaVersion: 8, appeals: [appeal, closing, incomplete],
+        dailyReports: [{ appealId: appeal.id, workContent: '专项记录' }], sheets: [{ remark: '旧梳理单' }] }
+      const raw = JSON.stringify(legacy, null, 2)
+      localStorage.setItem(key, raw)
       localStorage.setItem('unrelated', 'keep')
       store.init()
       assert.equal(store.db.schemaVersion, 9)
-      assert.equal(store.db.notes, undefined)
+      assert.equal(localStorage.getItem(backupKey), raw)
+      assert.deepEqual(JSON.parse(localStorage.getItem(backupKey)), legacy)
       assert.equal(localStorage.getItem('unrelated'), 'keep')
-      const id = addWork('换版后录入', 'D04')
+      const rows = listRows('appeals', store)
+      assert.equal(rows.length, 1)
+      const row = rows[0]
+      assert.deepEqual([row.id, row.title, row.creatorId, row.handlerId, row.deptId, row.unitId, row.submittedAt],
+        [appeal.id, appeal.title, appeal.creatorId, appeal.personId, appeal.deptId, appeal.projectId, appeal.createdAt])
+      assert.equal(row.history[0].note, appeal.progress[0].content)
+      assert.deepEqual(row.attachments, appeal.attachments)
+      ok(store.requestClosure(row.id, { content: '已完成调拨', date: today, attachments: [] }))
       store.selectPerson('B11')
       const before = localStorage.getItem(key)
       store.init()
       assert.equal(localStorage.getItem(key), before)
       assert.equal(store.currentUser.id, 'B11')
-      assert.ok(store.db.works.some(w => w.id === id))
+      assert.equal(store.db.appeals[0].status, '待销项审批')
+      assert.equal(localStorage.getItem(backupKey), raw)
+      assert.equal(localStorage.getItem(backupKey + ':2'), null)
+    })
+    scenario('升级写入失败保留旧主键，重试复用备份并保护其他快照及高版本', () => {
+      const raw = JSON.stringify({ schemaVersion: 8, sheets: [{ id: 'SL01' }] })
+      const previousBackup = JSON.stringify({ schemaVersion: 8, sheets: [] })
+      localStorage.setItem(key, raw)
+      localStorage.setItem(backupKey, previousBackup)
+      const write = localStorage.setItem
+      let failKey = backupKey + ':2'
+      localStorage.setItem = (k, value) => {
+        if (k === failKey) throw new Error('存储空间不足')
+        write(k, value)
+      }
+      assert.throws(() => store.init(), /存储空间不足/)
+      assert.equal(localStorage.getItem(key), raw)
+      assert.equal(localStorage.getItem(backupKey + ':2'), null)
+      failKey = key
+      assert.throws(() => store.init(), /存储空间不足/)
+      assert.equal(localStorage.getItem(key), raw)
+      assert.equal(localStorage.getItem(backupKey + ':2'), raw)
+      localStorage.setItem = write
+      store.init()
+      assert.equal(store.db.schemaVersion, 9)
+      assert.equal(localStorage.getItem(backupKey), previousBackup)
+      assert.equal(localStorage.getItem(backupKey + ':3'), null)
+      const future = JSON.stringify({ schemaVersion: 10 })
+      localStorage.setItem(key, future)
+      assert.throws(() => store.init(), /高于/)
+      assert.equal(localStorage.getItem(key), future)
+      localStorage.setItem(key, '{"schemaVersion":')
+      store.init()
+      assert.equal(localStorage.getItem(key + ':backup:unversioned'), '{"schemaVersion":')
+      assert.equal(store.db.schemaVersion, 9)
+    })
+    scenario('升级期间另一个标签页已保存新版记录时，沿用最新数据', () => {
+      const id = addWork('另一页刚保存的事项', 'D04')
+      const otherTab = localStorage.getItem(key)
+      const old = JSON.stringify({ schemaVersion: 8, sheets: [] })
+      localStorage.setItem(key, old)
+      const write = localStorage.setItem
+      localStorage.setItem = (k, value) => {
+        write(k, value)
+        if (k === backupKey) write(key, otherTab)
+      }
+      store.init()
+      assert.equal(localStorage.getItem(backupKey), old)
+      assert.equal(localStorage.getItem(key), otherTab)
+      assert.ok(store.db.works.some(work => work.id === id))
     })
     scenario('关系级联、总部人员限制、同对象多人及新增/编辑/停用/启用历史', () => {
       emptyBusinesses()
@@ -98,19 +175,21 @@ async function main () {
       addRelation('P01', 'J06')
       const bx = addRelation('P06', 'J01')
       addRelation('P16', 'BD1', '部门级')
-      const a = addWork('A', 'D07'), b = addWork('B', 'D06')
+      const counts = () => { const { due, filled, pending } = store.personalWork(); return [due, filled, pending] }
+      const a = addWork('A', 'D07')
       ok(store.saveExecution(a, 'J01', execution('A-X')))
+      assert.deepEqual(counts(), [2, 1, 1])
+      const b = addWork('B', 'D06')
       ok(store.saveExecution(b, 'J06', execution('B-Y')))
       const read = () => workRows(store.db).find(w => w.id === a).executions.find(e => e.projectId === 'J01')
       const first = read().firstAt
       assert.deepEqual(workRows(store.db).map(w => w.progressText), ['1/2', '1/2'])
       assert.equal(store.personalWork().tasks.length, 4)
-      assert.equal(store.personalWork().filled, 0)
-      assert.equal(store.personalWork().pending, 2)
+      assert.deepEqual(counts(), [4, 2, 2])
       assert.ok(store.personalWork().tasks.every(r => r.personalProgress === '1/2'))
       assert.equal(myWork(store.db, 'P16').due, 0)
       store.selectPerson('P06')
-      assert.equal(store.personalWork().filled, 1)
+      assert.deepEqual(counts(), [2, 1, 1])
       ok(store.saveExecution(a, 'J01', execution('乙编辑 A-X')))
       assert.equal(read().firstBy, 'P01'); assert.equal(read().firstAt, first); assert.equal(read().lastBy, 'P06')
       const totals = () => { const s = store.overviewStats(); return [s.filled, s.executions] }
@@ -127,7 +206,7 @@ async function main () {
       ok(store.saveWork({ ...work('A 已编辑', 'D04'), content: '新要求' }, a))
       assert.equal(read().content, '乙编辑 A-X')
       addWork('C', 'D14')
-      assert.equal(myWork(store.db, 'P01').due, 3)
+      assert.equal(myWork(store.db, 'P01').due, 6)
       addRelation('P02', 'J03')
       assert.equal(myWork(store.db, 'P02').tasks.length, 3)
       assert.equal(listRows('executions', store, { status: '已填写' }).length, 2)

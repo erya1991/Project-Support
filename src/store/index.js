@@ -37,10 +37,7 @@ const store = {
   orgOf (person) { return staffOrg(this.db, person) },
 
   init () {
-    const existing = cachedDb()
-    const db = migrateDb(existing)
-    if (db !== existing) localStorage.setItem(STORAGE_KEY, JSON.stringify(db))
-    state.db = db
+    state.db = migrateDb(localStorage, STORAGE_KEY)
     const saved = sessionStorage.getItem(ACTOR_KEY)
     state.actorId = this.getPerson(saved) ? saved : 'P01'
     state.day = todayStr()

@@ -99,15 +99,13 @@ export function workRows (db) {
 
 export function myWork (db, personId) {
   const tasks = []
-  let due = 0
   let filled = 0
   for (const work of workRows(db)) {
     const mine = work.executions.filter(row => row.scope === '当前' && row.helperIds.includes(personId))
     if (!mine.length) continue
     const item = progress(mine)
-    due++
-    if (item.filled === item.total) filled++
+    filled += item.filled
     tasks.push(...mine.map(row => ({ ...row, personalProgress: item.text })))
   }
-  return { tasks, due, filled, pending: due - filled }
+  return { tasks, due: tasks.length, filled, pending: tasks.length - filled }
 }
