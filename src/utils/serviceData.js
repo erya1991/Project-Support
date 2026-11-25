@@ -60,7 +60,7 @@ export function syncExecutions (db) {
     for (const [projectId, people] of projects) {
       let execution = existing.get(projectId)
       if (!execution) {
-        execution = { projectId, content: '', attachments: [], firstBy: '', firstAt: '', lastBy: '', lastAt: '', helpers: [] }
+        execution = { projectId, content: '', issues: '', suggestions: '', attachments: [], firstBy: '', firstAt: '', lastBy: '', lastAt: '', helpers: [] }
         work.executions.push(execution)
       }
       execution.helpers = [...people]
@@ -68,17 +68,34 @@ export function syncExecutions (db) {
   }
 }
 
-export function executionRows (db, work, helpers = projectHelpers(effectiveRelations(db))) {
+export function snapshotProgress (executions) {
+  return { projectIds: executions.map(e => e.projectId), filled: executions.filter(e => e.firstAt).length }
+}
+
+export function changeWorkStatus (db, work, status) {
+  if (work.status === status) return
+  if (status === '停用') {
+    const projects = projectHelpers(effectiveRelations(db))
+    work.stoppedProgress = snapshotProgress(work.executions.filter(e => projects.has(e.projectId)))
+  } else {
+    delete work.stoppedProgress
+  }
+  work.status = status
+}
+
+export function executionRows (db, work, helpers = projectHelpers(effectiveRelations(db)), retained = work.stoppedProgress) {
+  const retainedIds = new Set(retained?.projectIds)
   return work.executions.map(record => {
     const project = targetOf(db, PROJECT, record.projectId)
     const active = work.status === '启用' && helpers.has(record.projectId)
     const helperIds = active ? [...helpers.get(record.projectId)] : record.helpers
-    return { ...record, id: work.id + '/' + project.id, workId: work.id, title: work.title, workContent: work.content,
+    return { ...record, issues: record.issues || '', suggestions: record.suggestions || '',
+      id: work.id + '/' + project.id, workId: work.id, title: work.title, workContent: work.content,
       system: work.system, deptId: work.deptId, deptName: db.departments.find(d => d.id === work.deptId).name,
       projectName: project.name, company: project.company, helperIds,
       helperNames: helperIds.map(id => personName(db, id)).join('、'),
       firstName: personName(db, record.firstBy), lastName: personName(db, record.lastBy),
-      status: record.firstAt ? '已填写' : '待填写', scope: active ? '当前' : '历史' }
+      status: record.firstAt ? '已填写' : '待填写', scope: active ? '当前' : retainedIds.has(project.id) ? '停用留存' : '历史' }
   })
 }
 
@@ -90,22 +107,16 @@ export function progress (rows) {
 export function workRows (db) {
   const helpers = projectHelpers(effectiveRelations(db))
   return db.works.map(work => {
-    const executions = executionRows(db, work, helpers)
+    const retained = work.status === '停用' && (work.stoppedProgress || snapshotProgress(work.executions))
+    const executions = executionRows(db, work, helpers, retained)
     const current = progress(executions.filter(r => r.scope === '当前'))
     return { ...work, executions, deptName: db.departments.find(d => d.id === work.deptId).name,
-      creatorName: personName(db, work.creatorId), current, progressText: current.text }
+      creatorName: personName(db, work.creatorId), current, progressText: retained ? retained.filled + '/' + retained.projectIds.length : current.text }
   })
 }
 
 export function myWork (db, personId) {
-  const tasks = []
-  let filled = 0
-  for (const work of workRows(db)) {
-    const mine = work.executions.filter(row => row.scope === '当前' && row.helperIds.includes(personId))
-    if (!mine.length) continue
-    const item = progress(mine)
-    filled += item.filled
-    tasks.push(...mine.map(row => ({ ...row, personalProgress: item.text })))
-  }
+  const tasks = workRows(db).flatMap(work => work.executions.filter(row => row.scope === '当前' && row.helperIds.includes(personId)))
+  const filled = tasks.filter(row => row.status === '已填写').length
   return { tasks, due: tasks.length, filled, pending: tasks.length - filled }
 }

@@ -552,6 +552,7 @@ a {
 .page-panel.overview-panel { display: flex; flex-direction: column; overflow: hidden; }
 .overview-panel > .breadcrumb-row { flex: none; }
 .business-cell { white-space: pre-line; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+.business-long-text { display: block; white-space: nowrap; text-overflow: ellipsis; }
 
 /* 列按父容器分配宽度，长内容在单元格内省略并通过 Tooltip 查看全文。 */
 .ant-table table { width: 100%; table-layout: fixed; }
@@ -565,6 +566,8 @@ a {
 .ant-table .ant-calendar-picker { min-width: 0; }
 .cell-date { white-space: nowrap; }
 .ant-tooltip-inner { white-space: pre-wrap; overflow-wrap: anywhere; }
+.business-text-tooltip.ant-tooltip { max-width: min(480px, 80vw); }
+.business-text-tooltip .ant-tooltip-inner { max-height: 55vh; overflow-y: auto; }
 
 .page-panel::-webkit-scrollbar-thumb {
   background: #d2dfec;

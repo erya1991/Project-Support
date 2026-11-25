@@ -3,11 +3,12 @@
     <list-query :type="type" v-model="filters" @query="query" @reset="reset" />
     <div v-if="$scopedSlots.toolbar" class="toolbar"><slot name="toolbar" :rows="rows" :filters="applied" /></div>
     <div ref="tableSpace" class="table-space">
-      <business-table ref="table" :type="tableType || type" :rows="rows" :height="tableHeight" :compact="fill" :action-width="actionWidth" @detail="selected = $event">
+      <business-table ref="table" :type="tableType || type" :rows="rows" :height="tableHeight" :compact="fill" :action-width="actionWidth"
+        @detail="openDetail($event)" @progress="openDetail($event, 'projects')">
         <template v-if="$scopedSlots.actions" #actions="{row}"><slot name="actions" :row="row" /></template>
       </business-table>
     </div>
-    <record-detail v-if="selected" :type="type" :record="selected" @close="selected = null" />
+    <record-detail v-if="selected" :type="type" :record="selected" :mode="detailMode" @close="selected = null" />
   </div>
 </template>
 <script>
@@ -21,7 +22,7 @@ export default {
   props: { type: { type: String, required: true }, tableType: String, preset: Object, fill: Boolean, actionWidth: Number, deepLink: Boolean },
   data () {
     const filters = { ...emptyListFilters(this.type, this.$store), ...this.preset }
-    return { filters, applied: { ...filters }, selected: null, tableHeight: undefined }
+    return { filters, applied: { ...filters }, selected: null, detailMode: 'detail', tableHeight: undefined }
   },
   computed: { rows () { return listRows(this.type, this.$store, this.applied) } },
   watch: {
@@ -38,12 +39,13 @@ export default {
   },
   beforeDestroy () { if (this.observer) this.observer.disconnect() },
   methods: {
+    openDetail (row, mode = 'detail') { this.detailMode = mode; this.selected = row },
     query () { this.applied = { ...this.filters }; this.$refs.table.firstPage() },
     reset (preset) { this.filters = { ...emptyListFilters(this.type, this.$store), ...preset }; this.query() },
     openLinked () {
       if (!this.deepLink) return
       const id = this.$route.query.id
-      this.selected = id ? listRows(this.type, this.$store).find(row => row.id === id) || null : null
+      this.openDetail(id ? listRows(this.type, this.$store).find(row => row.id === id) : null)
     }
   }
 }

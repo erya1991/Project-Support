@@ -1,6 +1,6 @@
 import { beijingNow, todayStr, workdaysBetween } from '../utils/date'
 import { nextCode } from '../utils/businessCodes'
-import { PROJECT, DEPARTMENT, relationValues, syncExecutions } from '../utils/serviceData'
+import { PROJECT, DEPARTMENT, relationValues, syncExecutions, changeWorkStatus } from '../utils/serviceData'
 import { pendingReport } from '../utils/reportData'
 import { submitAppeal, reviewAppeal, requestClosure, submitSuggestion, replySuggestion } from '../utils/workflow'
 
@@ -173,7 +173,7 @@ export function buildSeed () {
     Object.assign(row, { firstBy: row.helpers[0], lastBy: row.helpers[0], firstAt: time(-3), lastAt: time(-2),
       content: '已与项目经理核对现场资料，完成本期检查并反馈整改意见。', attachments: [{ name: '项目落实记录.pdf' }] })
   })
-  db.works[4].status = '停用'
+  changeWorkStatus(db, db.works[4], '停用')
   const days = workdaysBetween(date(-10), todayStr())
   for (const day of days) {
     for (const personId of ['P01', 'P03', 'P06']) {

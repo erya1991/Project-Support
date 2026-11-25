@@ -4,14 +4,23 @@
       <div class="detail-grid">
         <div v-for="[label, key, wide] in fields" :key="key" class="detail-item" :class="{ full: wide }">
           <span class="detail-label">{{ label }}</span>
-          <span class="detail-value">{{ value(key) }}</span>
+          <a v-if="kind === 'works' && !projectList && key === 'progressText'" href="#" class="link-btn" @click.prevent="showProjects = true">{{ value(key) }}</a>
+          <span v-else class="detail-value">{{ value(key) }}</span>
         </div>
       </div>
       <section v-if="row.attachments" class="drawer-section"><div class="drawer-section-title">附件</div><file-uploader :value="row.attachments" readonly /></section>
-      <section v-if="kind === 'works'" class="drawer-section">
-        <div class="drawer-section-title">各项目执行情况</div>
-        <business-table type="workDetail" :rows="row.executions" compact @detail="child = $event" />
-      </section>
+      <template v-if="kind === 'works'">
+        <section v-for="group in projectGroups" :key="group.title" class="drawer-section">
+          <div class="drawer-section-title">{{ group.title }}（{{ group.rows.length }}）</div>
+          <business-table v-if="group.rows.length" type="workDetail" :rows="group.rows" compact :action-width="72" @detail="child = $event">
+            <template v-if="mode === 'admin'" #actions="{row: project}">
+              <a v-if="project.firstAt" class="link-btn" @click="editing = project">编辑</a>
+              <span v-else>—</span>
+            </template>
+          </business-table>
+          <a-empty v-else description="该范围暂无项目执行记录" />
+        </section>
+      </template>
       <section v-if="kind === 'appeals' && row.completion" class="drawer-section">
         <div class="drawer-section-title">销项申请</div>
         <div class="detail-grid">
@@ -30,12 +39,12 @@
           <div class="detail-item"><span class="detail-label">回复时间</span>{{ row.reply.time }}</div>
         </div>
       </section>
-      <section v-if="row.history && row.history.length" class="drawer-section">
-        <div class="drawer-section-title">{{ kind === 'relations' ? '配置历史' : '办理记录' }}</div>
+      <section v-if="kind !== 'relations' && row.history && row.history.length" class="drawer-section">
+        <div class="drawer-section-title">办理记录</div>
         <a-timeline><a-timeline-item v-for="(entry, i) in row.history" :key="i">
           <b>{{ entry.action }}</b>　{{ entry.time }}　<span class="muted">操作人 {{ entry.operator }}</span>
           <span v-if="entry.responsible" class="muted"> · 节点办理人 {{ entry.responsible }}</span>
-          <div class="detail-value">{{ historyNote(entry) }}</div>
+          <div class="detail-value">{{ entry.note }}</div>
           <file-uploader v-if="entry.attachments && entry.attachments.length" :value="entry.attachments" readonly />
         </a-timeline-item></a-timeline>
       </section>
@@ -48,23 +57,30 @@
       </section>
     </template>
     <a-empty v-else-if="record" description="该记录已退出当前范围" />
-    <template slot="footer"><a-button v-if="child" @click="child = null">返回事项</a-button><a-button @click="$emit('close')">关闭</a-button></template>
+    <execution-editor v-if="editing" :record="editing" admin @close="editing = null" />
+    <template slot="footer">
+      <a-button v-if="child" @click="child = null">{{ projectList ? '返回项目列表' : '返回事项' }}</a-button>
+      <a-button v-else-if="showProjects" @click="showProjects = false">返回事项</a-button>
+      <a-button @click="$emit('close')">关闭</a-button>
+    </template>
   </a-modal>
 </template>
 <script>
 import BusinessTable from './BusinessTable.vue'
 import FileUploader from './FileUploader.vue'
+import ExecutionEditor from './ExecutionEditor.vue'
 import { LIST_TITLES, listRows } from '../utils/businessLists'
-import { targetOf, personName, workRows } from '../utils/serviceData'
+import { PROJECT, workRows } from '../utils/serviceData'
 
 const details = {
   relations: [['关系编号', 'id'], ['状态', 'status'], ['总部帮扶人员', 'personName'], ['工号', 'employeeNo'],
-    ['职务', 'personTitle'], ['总部部门', 'deptName'], ['人员联系方式', 'phone'], ['对象类型', 'type'], ['所属分公司', 'company'],
-    ['帮扶部门／项目', 'targetName'], ['对应负责人', 'manager'], ['负责人联系方式', 'managerPhone']],
-  works: [['重点工作名称', 'title', true], ['所属体系', 'system'], ['归属部门', 'deptName'], ['重点工作内容', 'content', true],
+    ['职务', 'personTitle'], ['总部所属部门', 'deptName'], ['人员联系方式', 'phone'], ['对象类型', 'type'], ['所属分公司', 'company'],
+    ['帮扶部门／项目', 'targetName']],
+  works: [['事项编码', 'id'], ['重点工作名称', 'title', true], ['所属体系', 'system'], ['归属部门', 'deptName'], ['重点工作内容', 'content', true],
     ['状态', 'status'], ['项目落实进展', 'progressText'], ['创建人', 'creatorName'], ['创建时间', 'createdAt']],
-  executions: [['重点工作事项', 'title', true], ['工作内容', 'workContent', true], ['归属部门', 'deptName'], ['所属分公司', 'company'],
+  executions: [['事项编码', 'workId'], ['重点工作事项', 'title', true], ['工作内容', 'workContent', true], ['归属部门', 'deptName'], ['所属分公司', 'company'],
     ['项目名称', 'projectName'], ['帮扶人员', 'helperNames'], ['填报状态', 'status'], ['统计范围', 'scope'], ['项目落实情况', 'content', true],
+    ['存在问题', 'issues', true], ['改进建议', 'suggestions', true],
     ['首次填报人', 'firstName'], ['首次录入时间', 'firstAt'], ['最后修改人', 'lastName'], ['最后修改时间', 'lastAt']],
   appeals: [['诉求单号', 'id'], ['状态', 'status'], ['诉求标题', 'title', true], ['诉求内容', 'desc', true],
     ['发起人', 'creatorName'], ['提交时间', 'submittedAt'], ['所属分公司', 'company'], ['所属部门／项目', 'unitName'],
@@ -78,9 +94,9 @@ const details = {
     ['当日工作开展情况', 'workContent', true], ['今日需协调问题', 'newIssues', true]]
 }
 export default {
-  name: 'RecordDetail', components: { BusinessTable, FileUploader },
-  props: { type: String, record: Object },
-  data: () => ({ child: null }),
+  name: 'RecordDetail', components: { BusinessTable, FileUploader, ExecutionEditor },
+  props: { type: String, record: Object, mode: { type: String, default: 'detail' } },
+  data: () => ({ child: null, editing: null, showProjects: false }),
   computed: {
     currentRecord () {
       if (!this.record) return null
@@ -96,20 +112,32 @@ export default {
       return this.currentRecord
     },
     kind () { return (this.child || this.type === 'mine') ? 'executions' : this.type },
-    fields () { return details[this.kind] },
-    heading () { return (LIST_TITLES[this.kind] || '业务') + '详情' }
+    projectList () { return this.mode !== 'detail' || this.showProjects },
+    fields () {
+      if (this.kind === 'relations') return [...details.relations, [this.row.type === PROJECT ? '项目经理' : '分公司部门经理', 'manager'], ['联系方式', 'managerPhone']]
+      if (this.kind === 'works' && this.projectList) return [['事项编码', 'id'], ['重点工作名称', 'title'], ['项目落实进展', 'progressText'], ['状态', 'status']]
+      return details[this.kind]
+    },
+    projectGroups () {
+      const executions = this.row.executions
+      let title = this.row.status === '启用' ? '当前统计项目' : '停用留存项目'
+      if (this.row.stoppedProgress?.backfilled) title = '按旧执行记录回填的项目'
+      const groups = [{ title, rows: executions.filter(e => e.scope !== '历史') }]
+      const historical = executions.filter(e => e.scope === '历史')
+      if (historical.length) groups.push({ title: '历史项目（不计入进度）', rows: historical })
+      return groups
+    },
+    heading () {
+      if (this.kind === 'works' && this.mode === 'admin') return '管理员编辑项目执行情况'
+      if (this.kind === 'works' && this.projectList) return '项目执行情况'
+      return (LIST_TITLES[this.kind] || '业务') + '详情'
+    }
   },
-  watch: { record () { this.child = null } },
+  watch: { record () { this.child = null; this.editing = null; this.showProjects = false } },
   methods: {
     value (key) {
       if (key === 'projectDetails') return this.row.projects.map(p => p.company + ' · ' + p.name).join('\n')
       return this.row[key] || '—'
-    },
-    historyNote (entry) {
-      if (entry.note || !entry.values) return entry.note
-      const v = entry.values
-      const target = targetOf(this.$store.db, v.type, v.targetId)
-      return [personName(this.$store.db, v.personId), v.type, target.company, target.name, v.status].join(' · ')
     },
     changes (rev) {
       const fields = { projectNeeds: '项目层面服务需求', attend: '是否到岗', absentReason: '未到岗原因', workContent: '当日工作',

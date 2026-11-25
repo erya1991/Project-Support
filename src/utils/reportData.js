@@ -35,12 +35,25 @@ export function reportRow (report, eligible) {
     attendText: report.attend == null ? '未填报' : report.attend ? '是' : '否' }
 }
 
-export function dailyRows (db, date) {
-  const relations = effectiveRelations(db, date)
+export function dailyRows (db, date, relations = effectiveRelations(db, date)) {
   const eligible = dailyEligible(db, date, relations)
   const submitted = new Map(db.dailyReports.filter(r => r.date === date).map(r => [r.personId, r]))
   return db.people.filter(p => eligible.has(p.id) || submitted.has(p.id))
     .map(p => reportRow(submitted.get(p.id) || pendingReport(db, p, date, relations), eligible.has(p.id)))
+}
+
+export function attendanceRows (db, date) {
+  const relations = effectiveRelations(db, date)
+  const people = new Set(relations.map(r => r.personId))
+  const due = new Map(dailyRows(db, date, relations).filter(r => r.eligible).map(r => [r.personId, r]))
+  return db.people.filter(p => people.has(p.id)).map(person => {
+    const report = due.get(person.id)
+    let attendance = report ? '未填报' : '无应填'
+    if (report?.status === '已提交') attendance = report.attend === true ? '已到岗' : report.attend === false ? '未到岗' : '—'
+    return { id: person.id, personName: person.name, deptName: staffOrg(db, person).unitName, eligible: !!report,
+      projectName: personProjects(db, person.id, relations).map(p => p.name).join('、'),
+      reportStatus: report ? report.status : '无应填', attendance }
+  })
 }
 
 function summaryRows (db, records) {

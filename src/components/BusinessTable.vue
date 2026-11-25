@@ -25,17 +25,19 @@ export default {
           customRender: (value, row) => {
             if (key === 'status' || key === 'frozenText') return h(StatusTag, { props: { status: value } })
             const content = value == null || value === '' ? '—' : String(value)
-            const link = detailLinks[this.type].includes(key)
+            const isProgress = this.type === 'works' && key === 'progressText'
+            const link = isProgress || detailLinks[this.type].includes(key)
+            const cellClass = { 'business-cell': true, 'business-long-text': key === 'content' }
             const cell = link
-              ? h('a', { class: 'business-cell', attrs: { href: '#' }, on: { click: event => { event.preventDefault(); this.$emit('detail', row) } } }, content)
-              : h('span', { class: 'business-cell' }, content)
-            return h('a-tooltip', { props: { title: content } }, [cell])
+              ? h('a', { class: cellClass, attrs: { href: '#' }, on: { click: event => { event.preventDefault(); this.$emit(isProgress ? 'progress' : 'detail', row) } } }, content)
+              : h('span', { class: cellClass }, content)
+            return h('a-tooltip', { props: { title: content, overlayClassName: key === 'content' ? 'business-text-tooltip' : '' } }, [cell])
           } }
       })
       result.unshift({ title: '序号', key: 'sequence', width: 46, align: 'center',
         customRender: (value, row, i) => (this.pagination.current - 1) * this.pagination.pageSize + i + 1 })
       if (this.$scopedSlots.actions) result.push({ title: '操作', key: 'actions', width: this.actionWidth, scopedSlots: { customRender: 'actions' } })
-      return fitColumns(result)
+      return fitColumns(result, ['works', 'mine'].includes(this.type) ? 'content' : undefined)
     }
   },
   watch: {

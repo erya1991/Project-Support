@@ -6,19 +6,20 @@
       </a-radio-group>
     </a-form-model-item>
     <a-form-model-item label="所属分公司" required>
-      <a-select :value="company" placeholder="请选择分公司" @change="$emit('change', { company: $event, targetId: undefined })">
+      <a-select :value="company" :allow-clear="relation" placeholder="请选择分公司" @change="$emit('change', { company: $event, targetId: undefined })">
         <a-select-option v-for="c in $store.db.companies" :key="c">{{ c }}</a-select-option>
       </a-select>
     </a-form-model-item>
     <a-form-model-item :label="(relation ? '帮扶' : '所属') + unitLabel" required>
-      <a-select :value="targetId" :disabled="!company || !type" show-search option-filter-prop="children" :placeholder="'请选择' + unitLabel"
+      <a-select :value="targetId" :allow-clear="relation" :disabled="!company || !type" show-search option-filter-prop="children" :placeholder="'请选择' + unitLabel"
         @change="$emit('change', { targetId: $event })">
         <a-select-option v-for="unit in units" :key="unit.id">{{ unit.name }}</a-select-option>
       </a-select>
     </a-form-model-item>
-    <a-form-model-item v-if="relation" label="对应负责人及联系方式">
-      <div class="readonly-box">{{ selected ? selected.manager + ' · ' + selected.managerPhone : '选择对象后带出' }}</div>
-    </a-form-model-item>
+    <template v-if="relation">
+      <a-form-model-item :label="type === '项目级' ? '项目经理' : '分公司部门经理'"><div class="readonly-box">{{ selected ? selected.manager : '—' }}</div></a-form-model-item>
+      <a-form-model-item label="联系方式"><div class="readonly-box">{{ selected ? selected.managerPhone : '—' }}</div></a-form-model-item>
+    </template>
   </div>
 </template>
 <script>

@@ -1,5 +1,5 @@
 import { buildSeed, SCHEMA_VERSION } from '../data/seed'
-import { PROJECT } from '../utils/serviceData'
+import { PROJECT, snapshotProgress } from '../utils/serviceData'
 
 function saveBackup (storage, key, version, raw) {
   const base = key + ':backup:' + (version == null ? 'unversioned' : 'v' + version)
@@ -38,6 +38,7 @@ function migrateOpenAppeals (appeals, db) {
 export function migrateDb (storage, key) {
   const raw = storage.getItem(key)
   let previous
+  let db
   if (raw !== null) {
     try {
       previous = JSON.parse(raw)
@@ -46,14 +47,23 @@ export function migrateDb (storage, key) {
       // 无法解析的缓存也按无版本数据备份原文。
     }
     const version = previous?.schemaVersion
-    if (version === SCHEMA_VERSION) return previous
-    if (version > SCHEMA_VERSION) throw new Error('浏览器数据版本高于当前应用版本')
-    saveBackup(storage, key, version, raw)
+    if (version === SCHEMA_VERSION) {
+      const missing = previous.works.filter(w => w.status === '停用' && !w.stoppedProgress)
+      if (!missing.length) return previous
+      // 旧版没有停用时的范围，按该事项已有项目执行记录一次性留存。
+      for (const work of missing) work.stoppedProgress = { ...snapshotProgress(work.executions), backfilled: true }
+      db = previous
+    } else {
+      if (version > SCHEMA_VERSION) throw new Error('浏览器数据版本高于当前应用版本')
+      saveBackup(storage, key, version, raw)
+    }
   }
 
-  const db = buildSeed()
-  if (previous?.schemaVersion === 8 && Array.isArray(previous.appeals)) {
-    db.appeals = migrateOpenAppeals(previous.appeals, db)
+  if (!db) {
+    db = buildSeed()
+    if (previous?.schemaVersion === 8 && Array.isArray(previous.appeals)) {
+      db.appeals = migrateOpenAppeals(previous.appeals, db)
+    }
   }
   const updated = JSON.stringify(db)
   // 生成样例期间其他标签页可能已完成升级并开始录入。

@@ -14,40 +14,56 @@
     <section class="ledger-section">
       <div class="section-title">综合台账</div>
       <a-tabs :active-key="tab" @change="switchTab"><a-tab-pane v-for="key in tabs" :key="key" :tab="titles[key]" /></a-tabs>
-      <business-list :key="tab" :type="tab" :preset="preset" fill />
+      <business-list :key="tab" :type="tab" :table-type="tab === 'reports' ? 'allReports' : tab" :preset="preset" fill />
     </section>
+    <a-modal v-if="attendanceMetric" visible title="人员到岗明细" :width="850" @cancel="attendanceMetric = null">
+      <div class="toolbar">{{ $store.state.day }} · {{ attendanceMetric.label }}　{{ attendanceMetric.filters.eligible ? '应填' : '共' }} {{ attendanceDetails.length }} 人</div>
+      <business-table type="attendance" :rows="attendanceDetails" compact />
+      <template slot="footer"><a-button @click="attendanceMetric = null">关闭</a-button></template>
+    </a-modal>
   </div>
 </template>
 <script>
 import moment from 'moment'
 import BusinessList from '../components/BusinessList.vue'
+import BusinessTable from '../components/BusinessTable.vue'
 import { LIST_TITLES } from '../utils/businessLists'
-import { APPEAL_STATES, DEPARTMENT, PROJECT } from '../utils/serviceData'
+import { APPEAL_STATES } from '../utils/serviceData'
 export default {
-  name: 'OverviewView', components: { BusinessList },
-  data: () => ({ tab: 'appeals', tabs: ['appeals', 'works', 'executions', 'reports', 'suggestions', 'relations'], titles: LIST_TITLES, preset: {} }),
+  name: 'OverviewView', components: { BusinessList, BusinessTable },
+  data: () => ({ tab: 'relations', tabs: ['relations', 'works', 'appeals', 'reports', 'suggestions'], titles: LIST_TITLES, preset: {}, attendanceMetric: null }),
   computed: {
+    stats () { return this.$store.overviewStats() },
+    attendanceDetails () {
+      const filter = this.attendanceMetric.filters
+      return this.stats.attendance.filter(r => (!filter.eligible || r.eligible) && (!filter.attendance || r.attendance === filter.attendance))
+    },
     groups () {
-      const s = this.$store.overviewStats()
+      const s = this.stats
       const date = moment(this.$store.state.day)
       const metric = (label, value, unit, tab, filters, color) => ({ label, value, unit, tab, filters, color })
       return [
-        { title: '帮扶关系', icon: 'team', metrics: [
-          metric('有效部门级帮扶', s.departments, '条', 'relations', { type: DEPARTMENT, status: '启用' }),
-          metric('有效项目级帮扶', s.projects, '条', 'relations', { type: PROJECT, status: '启用' }, 'blue')] },
+        { title: '人员到岗统计', icon: 'team', metrics: [
+          metric('服务人员数', s.serviceCount, '人', 'attendance', {}),
+          metric('今日到岗人数', s.attended, '人', 'attendance', { attendance: '已到岗' }, 'blue'),
+          metric('今日到岗率', s.attendanceRate ?? '—', s.due ? '%' : '', 'attendance', { eligible: true })] },
         { title: '部门重点工作', icon: 'solution', metrics: [
           metric('启用事项', s.works, '项', 'works', { status: '启用' }),
-          metric('项目执行进度', s.filled + '/' + s.executions, '', 'executions', {}, 'blue')] },
-        { title: '基层诉求', icon: 'profile', metrics: APPEAL_STATES.map((status, i) =>
+          metric('项目执行进度', s.filled + '/' + s.executions, '', 'works', { status: '启用' }, 'blue')] },
+        { title: '基层诉求办理', icon: 'profile', metrics: APPEAL_STATES.map((status, i) =>
           metric(status, s.appeals[status], '条', 'appeals', { status }, ['orange', 'blue', 'orange', 'green'][i])) },
-        { title: '日报管理', icon: 'form', metrics: [
+        { title: '服务日报填报', icon: 'form', metrics: [
           metric('今日应填报人数', s.due, '人', 'reports', { date, eligible: true }),
           metric('今日已填报人数', s.submitted, '人', 'reports', { date, eligible: true, status: '已提交' }, 'green')] }
       ]
     }
   },
   methods: {
-    select (metric) { this.tab = metric.tab; this.preset = { ...metric.filters } },
+    select (metric) {
+      if (metric.tab === 'attendance') { this.attendanceMetric = metric; return }
+      this.tab = metric.tab
+      this.preset = { ...metric.filters }
+    },
     switchTab (tab) { this.tab = tab; this.preset = {} }
   }
 }

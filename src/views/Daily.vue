@@ -16,14 +16,14 @@
       </a-tab-pane>
       <a-tab-pane key="all">
         <span slot="tab"><a-icon type="profile" /> 全部日报</span>
-        <business-list type="reports" table-type="allReports" :action-width="147">
+        <business-list type="reports" table-type="allReports" :action-width="155">
           <template #toolbar="{filters, rows}"><a-button icon="download" @click="downloadDaily(filters)">导出当日日报</a-button>
             <span class="muted">已提交 {{ rows.filter(r => r.status === '已提交').length }} 份 · 待填写 {{ rows.filter(r => r.status === '待填写').length }} 份</span>
           </template>
           <template #actions="{row}">
             <a v-if="row.status === '待填写' && canSubmit(row)" class="link-btn" @click="open(row)">填写日报</a>
             <a class="link-btn" @click="detail = row">查看</a>
-            <a v-if="row.status === '已提交'" class="link-btn" @click="open(row, true)">管理员修订</a>
+            <a v-if="row.status === '已提交'" class="link-btn" @click="open(row, true)">管理员编辑</a>
           </template>
         </business-list>
       </a-tab-pane>
@@ -44,8 +44,8 @@
       </a-tab-pane>
     </a-tabs>
     <record-detail v-if="detail" type="reports" :record="detail" @close="detail = null" />
-    <a-modal :visible="!!record" :title="revising ? '管理员修订日报' : '填写日报'" :width="810" :mask-closable="false"
-      :ok-text="revising ? '保存修订' : '提交日报'" wrap-class-name="daily-report-modal" @ok="submit" @cancel="record = null">
+    <a-modal :visible="!!record" :title="revising ? '管理员编辑日报' : '填写日报'" :width="810" :mask-closable="false"
+      :ok-text="revising ? '保存修改' : '提交日报'" wrap-class-name="daily-report-modal" @ok="submit" @cancel="record = null">
       <template v-if="record">
         <div class="detail-grid">
           <div class="detail-item"><span class="detail-label">填报日期</span>{{ record.date }}</div>

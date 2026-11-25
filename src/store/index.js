@@ -3,8 +3,8 @@ import { buildSeed, SCHEMA_VERSION } from '../data/seed'
 import { migrateDb } from './migrate'
 import { nowStr, todayStr } from '../utils/date'
 import { nextCode } from '../utils/businessCodes'
-import { PROJECT, DEPARTMENT, staffOrg, targetOf, relationValues, effectiveRelations, personName, syncExecutions, workRows, myWork } from '../utils/serviceData'
-import { dailyRows, pendingReport, reportBody, dailyEligible, validateReport } from '../utils/reportData'
+import { PROJECT, DEPARTMENT, staffOrg, targetOf, relationValues, effectiveRelations, personName, syncExecutions, changeWorkStatus, workRows, myWork } from '../utils/serviceData'
+import { dailyRows, attendanceRows, pendingReport, reportBody, dailyEligible, validateReport } from '../utils/reportData'
 import { submitAppeal, reviewAppeal, requestClosure, submitSuggestion, replySuggestion, appealStats } from '../utils/workflow'
 
 const STORAGE_KEY = 'hq_enablement_db_v5'
@@ -107,7 +107,8 @@ const store = {
       const original = id && db.works.find(w => w.id === id)
       if (id && !original) return '未找到重点工作'
       const work = original || { id: nextCode(db.works, 'ZDGZ'), creatorId: actor.id, createdAt: nowStr(), executions: [] }
-      Object.assign(work, { title: form.title.trim(), content: form.content.trim(), system: form.system, deptId: form.deptId, status: form.status })
+      changeWorkStatus(db, work, form.status)
+      Object.assign(work, { title: form.title.trim(), content: form.content.trim(), system: form.system, deptId: form.deptId })
       if (!original) db.works.unshift(work)
       syncExecutions(db)
     })
@@ -116,19 +117,25 @@ const store = {
     return this.change(db => {
       const work = db.works.find(w => w.id === id)
       if (!work || !['启用', '停用'].includes(status) || work.status === status) return '事项状态已变更'
-      work.status = status
+      changeWorkStatus(db, work, status)
       syncExecutions(db)
     })
   },
-  saveExecution (workId, projectId, form) {
+  saveExecution (workId, projectId, form, admin = false) {
     return this.change((db, actor) => {
       const work = db.works.find(w => w.id === workId)
       const row = work && work.executions.find(e => e.projectId === projectId)
-      if (!row || work.status !== '启用' || !effectiveRelations(db).some(r => r.type === PROJECT && r.targetId === projectId)) return '该事项或项目已退出当前填报范围'
+      if (!row) return '未找到项目执行记录'
+      if (admin) {
+        if (!row.firstAt) return '管理员仅可编辑已填写的项目记录'
+      } else if (work.status !== '启用' || !effectiveRelations(db).some(r => r.type === PROJECT && r.targetId === projectId && r.personId === actor.id)) {
+        return '该事项或项目已退出个人填报范围'
+      }
       if (!form.content.trim()) return '请填写项目落实情况'
       const time = nowStr()
       if (!row.firstAt) Object.assign(row, { firstAt: time, firstBy: actor.id })
-      Object.assign(row, { content: form.content.trim(), attachments: form.attachments, lastAt: time, lastBy: actor.id })
+      Object.assign(row, { content: form.content.trim(), issues: (form.issues ?? row.issues ?? '').trim(),
+        suggestions: (form.suggestions ?? row.suggestions ?? '').trim(), attachments: form.attachments, lastAt: time, lastBy: actor.id })
     })
   },
   personalWork () { return myWork(this.db, state.actorId) },
@@ -172,13 +179,14 @@ const store = {
   },
 
   overviewStats () {
-    const relations = effectiveRelations(this.db)
     const works = workRows(this.db).filter(w => w.status === '启用')
-    const reports = dailyRows(this.db, state.day).filter(r => r.eligible)
-    return { departments: relations.filter(r => r.type === DEPARTMENT).length, projects: relations.filter(r => r.type === PROJECT).length,
+    const attendance = attendanceRows(this.db, state.day)
+    const due = attendance.filter(r => r.eligible).length
+    const attended = attendance.filter(r => r.attendance === '已到岗').length
+    return { attendance, serviceCount: attendance.length, attended, attendanceRate: due ? Math.round(attended / due * 1000) / 10 : null,
       works: works.length, filled: works.reduce((total, w) => total + w.current.filled, 0),
       executions: works.reduce((total, w) => total + w.current.total, 0), appeals: appealStats(this.db.appeals),
-      due: reports.length, submitted: reports.filter(r => r.status === '已提交').length }
+      due, submitted: attendance.filter(r => r.reportStatus === '已提交').length }
   },
   todoGroups () {
     const reports = dailyRows(this.db, state.day).filter(r => r.personId === state.actorId && r.status === '待填写')

@@ -104,14 +104,14 @@ const specs = {
   relations: [['编号', 'id', 106], ['总部帮扶人员', 'personName', 80], ['工号', 'employeeNo', 70], ['职务', 'personTitle', 82],
     ['总部部门', 'deptName', 96], ['对象类型', 'type', 66], ['所属分公司', 'company', 88], ['帮扶部门／项目', 'targetName', 130],
     ['对应负责人', 'manager', 70], ['联系方式', 'managerPhone', 100], ['状态', 'status', 61]],
-  works: [['所属体系', 'system', 82], ['归属部门', 'deptName', 130], ['重点工作名称', 'title', 240],
-    ['项目落实进展 C/D', 'progressText', 115], ['状态', 'status', 76]],
+  works: [['事项编码', 'id', 120], ['所属体系', 'system', 70], ['归属部门', 'deptName', 110], ['重点工作名称', 'title', 160],
+    ['重点工作内容', 'content', 220], ['项目落实进展', 'progressText', 95], ['状态', 'status', 58]],
   executions: [['重点工作事项', 'title', 164], ['所属分公司', 'company', 96], ['项目名称', 'projectName', 132],
     ['帮扶人员', 'helperNames', 112], ['填报状态', 'status', 76], ['首次录入时间', 'firstAt', 130]],
-  mine: [['重点工作事项', 'title', 160], ['归属部门', 'deptName', 110], ['本人项目进度', 'personalProgress', 80],
-    ['所属分公司', 'company', 96], ['项目名称', 'projectName', 140], ['填报状态', 'status', 72], ['最后修改时间', 'lastAt', 125]],
+  mine: [['事项编码', 'workId', 120], ['重点工作事项', 'title', 145], ['归属部门', 'deptName', 105],
+    ['所属分公司', 'company', 88], ['项目名称', 'projectName', 124], ['项目落实情况', 'content', 220], ['填报状态', 'status', 65], ['最后修改时间', 'lastAt', 115]],
   workDetail: [['项目名称', 'projectName', 125], ['所属分公司', 'company', 85], ['帮扶人员', 'helperNames', 85], ['项目落实情况', 'content', 142],
-    ['状态', 'status', 65], ['范围', 'scope', 55], ['首次填报人', 'firstName', 75], ['录入时间', 'firstAt', 103],
+    ['填报状态', 'status', 65], ['首次填报人', 'firstName', 75], ['首次录入时间', 'firstAt', 103],
     ['最后修改人', 'lastName', 75], ['修改时间', 'lastAt', 103]],
   appeals: [['单号', 'id', 115], ['诉求标题', 'title', 170], ['发起人', 'creatorName', 65], ['所属分公司', 'company', 92],
     ['所属部门／项目', 'unitName', 120], ['主责部门', 'deptName', 110], ['承办人', 'handlerName', 65], ['当前状态', 'status', 90], ['提交时间', 'submittedAt', 116]],
@@ -122,6 +122,8 @@ const specs = {
   allReports: [['填报日期', 'date', 90], ['填报人', 'personName', 58], ['总部部门', 'deptName', 92], ['所属分公司', 'company', 92],
     ['帮扶项目', 'projectName', 136], ['是否到岗', 'attendText', 58], ['当日工作开展情况', 'workContent', 148],
     ['今日需协调问题', 'newIssues', 124], ['填报状态', 'status', 65], ['冻结状态', 'frozenText', 65], ['提交时间', 'submitTime', 103]],
+  attendance: [['姓名', 'personName', 80], ['总部部门', 'deptName', 140], ['关联项目', 'projectName', 250],
+    ['当日日报', 'reportStatus', 95], ['到岗情况', 'attendance', 90]],
   weeklyAbsent: [['日期', 'date', 100], ['姓名', 'personName', 75], ['部门', 'deptName', 100], ['帮扶项目', 'projectName', 143],
     ['项目层面服务需求', 'needs', 165], ['是否到岗', 'attend', 65], ['未到岗原因', 'reason', 175]],
   weeklyService: [['日期', 'date', 100], ['姓名', 'personName', 75], ['部门', 'deptName', 100], ['帮扶项目', 'projectName', 143],
@@ -132,11 +134,16 @@ export function listColumns (type) {
   return specs[type].map(([title, dataIndex, width]) => ({ title, dataIndex, key: dataIndex, width }))
 }
 
-export function fitColumns (columns) {
-  const total = columns.reduce((sum, c) => sum + c.width, 0)
-  return columns.map(c => ({ ...c, width: c.width / total * 100 + '%' }))
+export function fitColumns (columns, fixedKey) {
+  const fixedWidth = columns.find(c => c.key === fixedKey)?.width || 0
+  const flexible = columns.reduce((sum, c) => sum + c.width, 0) - fixedWidth
+  return columns.map(c => {
+    if (c.key === fixedKey) return c
+    const share = c.width / flexible
+    return { ...c, width: fixedWidth ? `calc(${share * 100}% - ${share * fixedWidth}px)` : share * 100 + '%' }
+  })
 }
 
-export const detailLinks = { relations: ['id', 'personName'], works: ['title'], executions: ['title', 'projectName'],
-  mine: ['title', 'projectName'], workDetail: ['projectName'], appeals: ['id', 'title'], suggestions: ['id', 'title'], reports: ['date', 'personName'],
+export const detailLinks = { relations: ['id', 'personName'], works: ['id', 'title'], executions: ['title', 'projectName'],
+  mine: ['workId', 'title', 'projectName'], workDetail: ['projectName'], attendance: [], appeals: ['id', 'title'], suggestions: ['id', 'title'], reports: ['date', 'personName'],
   allReports: ['date', 'personName'], weeklyAbsent: ['date'], weeklyService: ['date'] }
