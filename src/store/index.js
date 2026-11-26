@@ -5,7 +5,7 @@ import { nowStr, todayStr } from '../utils/date'
 import { nextCode } from '../utils/businessCodes'
 import { PROJECT, DEPARTMENT, staffOrg, targetOf, relationValues, effectiveRelations, personName, syncExecutions, changeWorkStatus, workRows, myWork } from '../utils/serviceData'
 import { dailyRows, attendanceRows, pendingReport, reportBody, dailyEligible, validateReport } from '../utils/reportData'
-import { submitAppeal, reviewAppeal, requestClosure, submitSuggestion, replySuggestion, appealStats } from '../utils/workflow'
+import { submitAppeal, reviewAppeal, updateAppealProgress, requestClosure, submitSuggestion, replySuggestion, appealStats } from '../utils/workflow'
 
 const STORAGE_KEY = 'hq_enablement_db_v5'
 const ACTOR_KEY = 'service_project_demo_person'
@@ -166,6 +166,7 @@ const store = {
   reviewAppeal (id, stage, approved, handlerId, comment) {
     return this.change((db, actor) => reviewAppeal(db, id, stage, approved, handlerId, comment, actor, nowStr()))
   },
+  updateAppealProgress (id, form) { return this.change((db, actor) => updateAppealProgress(db, id, form, actor, nowStr())) },
   requestClosure (id, form) { return this.change((db, actor) => requestClosure(db, id, form, actor, nowStr())) },
   saveSuggestion (form, id) { return this.change((db, actor) => submitSuggestion(db, form, actor, nowStr(), id)) },
   replySuggestion (id, form) { return this.change((db, actor) => replySuggestion(db, id, form, actor, nowStr())) },

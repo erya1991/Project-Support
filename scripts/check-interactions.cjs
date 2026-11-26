@@ -25,6 +25,8 @@ async function main () {
     const { listRows } = await server.ssrLoadModule('/src/utils/businessLists.js')
     const { dailyRows, reportBody, buildDailyReport, buildWeeklyReport } = await server.ssrLoadModule('/src/utils/reportData.js')
     const { default: uploader } = await server.ssrLoadModule('/src/components/FileUploader.vue')
+    const { default: appealsView } = await server.ssrLoadModule('/src/views/Appeals.vue')
+    const openClosure = (appealsView.options || appealsView).methods.openClosure
     assert.equal(todayStr(), today)
     let count = 0
     const ok = res => assert.equal(res.ok, true, res.message)
@@ -94,6 +96,7 @@ async function main () {
       assert.deepEqual([row.id, row.title, row.creatorId, row.handlerId, row.deptId, row.unitId, row.submittedAt],
         [appeal.id, appeal.title, appeal.creatorId, appeal.personId, appeal.deptId, appeal.projectId, appeal.createdAt])
       assert.equal(row.history[0].note, appeal.progress[0].content)
+      assert.equal(row.progressContent, appeal.progress[0].content)
       assert.deepEqual(row.attachments, appeal.attachments)
       ok(store.requestClosure(row.id, { content: '已完成调拨', date: today, attachments: [] }))
       store.selectPerson('B11')
@@ -377,9 +380,61 @@ async function main () {
       assert.equal(store.db.dailyReports.length, 0)
       denied(review('待销项审批', true)); denied(store.requestClosure(id, close))
     })
-    scenario('全员可提建议、自由文本制度、改可无日期、不改清除日期、回复后办结', () => {
+    scenario('诉求进展多次保存、销项退回与再送审、旧完成情况和当前结果', () => {
+      const legacyClosed = listRows('appeals', store, { status: '已销项' })[0]
+      assert.equal(legacyClosed.progressContent, legacyClosed.completion.content)
+      ok(store.saveAppeal(appealForm))
+      const id = store.db.appeals[0].id
+      const row = () => listRows('appeals', store).find(r => r.id === id)
+      const update = (content, attachments = []) => store.updateAppealProgress(id, { content, attachments })
+      const review = (stage, pass, comment) => store.reviewAppeal(id, stage, pass, 'JP01', comment)
+      denied(update('受理前')); assert.equal(row().progressContent, '')
+      ok(review('待审批', false, '补充资料'))
+      denied(update('受理退回后')); assert.equal(row().progressContent, '')
+      ok(store.saveAppeal(appealForm, id))
+      ok(review('待审批', true, '请尽快办理'))
+      denied(update('  ')); assert.equal(row().progressContent, '')
+
+      const file = { name: '现场复核.pdf', size: 120 }
+      ok(update('已核对现场', [file]))
+      ok(update('已解决\n等待现场确认'))
+      assert.equal(row().status, '办理中')
+      assert.equal(row().progressContent, '已解决\n等待现场确认')
+      const dialog = {}
+      openClosure.call(dialog, row())
+      assert.equal(dialog.closure.content, '')
+      const updates = row().history.filter(entry => entry.action === '更新进展')
+      assert.equal(updates.length, 2)
+      assert.deepEqual(updates[0].attachments, [file])
+      assert.deepEqual([updates[0].note, updates[0].responsible, updates[0].operator, updates[0].time],
+        ['已核对现场', row().handlerName, store.currentUser.name, today + ' 10:00'])
+
+      const submission = { content: '第一轮送审情况', date: '2026-11-20', attachments: [file] }
+      denied(store.requestClosure(id, { ...submission, date: '' }))
+      ok(store.requestClosure(id, submission))
+      denied(update('不能覆盖送审材料')); assert.equal(row().progressContent, submission.content)
+      ok(review('待销项审批', false, '请补签回执'))
+      assert.equal(row().progressContent, submission.content)
+      ok(update('已取得回执'))
+      store.init()
+      assert.equal(row().progressContent, '已取得回执')
+      assert.deepEqual(row().completion, submission)
+      openClosure.call(dialog, row())
+      assert.equal(dialog.closure.content, '')
+      assert.deepEqual(dialog.closure.attachments, submission.attachments)
+      assert.ok(row().history.some(entry => entry.action === '销项退回' && entry.note === '请补签回执'))
+
+      ok(store.requestClosure(id, { content: '最终复核完成', date: today, attachments: [] }))
+      ok(review('待销项审批', true, '同意销项'))
+      assert.deepEqual([row().status, row().progressContent, row().closedAt.slice(0, 10)], ['已销项', '最终复核完成', today])
+      const firstSubmission = row().history.find(entry => entry.action === '提交销项')
+      assert.ok(firstSubmission.note.includes(submission.content))
+      assert.deepEqual(firstSubmission.attachments, [file])
+      denied(update('已批准后')); assert.equal(row().progressContent, '最终复核完成')
+    })
+    scenario('全员可提建议、采纳可无日期、不采纳清除日期、回复结果可按原值查询', () => {
       emptyBusinesses()
-      for (const decision of ['改', '不改']) {
+      for (const [decision, label] of [['改', '采纳'], ['不改', '不采纳']]) {
         store.selectPerson(decision === '改' ? 'B11' : 'JP01')
         denied(store.saveSuggestion({ ...suggestionForm, flow: '' }))
         ok(store.saveSuggestion(suggestionForm))
@@ -390,7 +445,9 @@ async function main () {
         ok(store.replySuggestion(s.id, form))
         const reply = store.db.suggestions[0].reply
         assert.equal(reply.deadline, ''); assert.equal(reply.by, 'M02'); assert.ok(reply.time)
-        assert.equal(listRows('suggestions', store, { decision })[0].status, '已回复')
+        const [result] = listRows('suggestions', store, { decision })
+        assert.deepEqual([result.id, result.status, result.decisionLabel], [s.id, '已回复', label])
+        assert.equal(result.history.at(-1).note, label + '。' + form.comment)
         denied(store.replySuggestion(s.id, form)); denied(store.removeRequest('suggestions', s.id))
       }
       assert.equal(store.todoGroups().find(g => g.key === 'approvals').items.length, 0)

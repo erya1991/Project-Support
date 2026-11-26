@@ -21,18 +21,23 @@
           <a-empty v-else description="该范围暂无项目执行记录" />
         </section>
       </template>
-      <section v-if="kind === 'appeals' && row.completion" class="drawer-section">
-        <div class="drawer-section-title">销项申请</div>
+      <section v-if="kind === 'appeals'" class="drawer-section">
+        <div class="drawer-section-title">{{ appealResultTitle }}</div>
         <div class="detail-grid">
-          <div class="detail-item full"><span class="detail-label">完成情况</span><span class="detail-value">{{ row.completion.content }}</span></div>
-          <div class="detail-item"><span class="detail-label">完成日期</span>{{ row.completion.date }}</div>
-          <div class="detail-item"><span class="detail-label">佐证附件</span><file-uploader :value="row.completion.attachments" readonly /></div>
+          <div class="detail-item full"><span class="detail-value">{{ row.progressContent || '—' }}</span></div>
+          <template v-if="row.result">
+            <div v-if="row.result.operator" class="detail-item"><span class="detail-label">更新人</span>{{ row.result.operator }}</div>
+            <div v-if="row.result.time" class="detail-item"><span class="detail-label">更新时间</span>{{ row.result.time }}</div>
+            <div v-if="row.result.date" class="detail-item"><span class="detail-label">完成日期</span>{{ row.result.date }}</div>
+            <div v-if="row.status === '已销项'" class="detail-item"><span class="detail-label">销项批准时间</span>{{ row.closedAt || '—' }}</div>
+            <div class="detail-item full"><span class="detail-label">{{ row.result.date ? '佐证附件' : '进展附件' }}</span><file-uploader :value="row.result.attachments" readonly /></div>
+          </template>
         </div>
       </section>
       <section v-if="kind === 'suggestions' && row.reply" class="drawer-section">
         <div class="drawer-section-title">主责部门经理回复</div>
         <div class="detail-grid">
-          <div class="detail-item"><span class="detail-label">回复建议</span>{{ row.reply.decision }}</div>
+          <div class="detail-item"><span class="detail-label">回复建议</span>{{ row.decisionLabel }}</div>
           <div v-if="row.reply.decision === '改'" class="detail-item"><span class="detail-label">计划完成时间</span>{{ row.reply.deadline || '—' }}</div>
           <div class="detail-item full"><span class="detail-label">回复说明</span><span class="detail-value">{{ row.reply.comment }}</span></div>
           <div class="detail-item"><span class="detail-label">回复人</span>{{ row.manager }}</div>
@@ -84,7 +89,7 @@ const details = {
     ['首次填报人', 'firstName'], ['首次录入时间', 'firstAt'], ['最后修改人', 'lastName'], ['最后修改时间', 'lastAt']],
   appeals: [['诉求单号', 'id'], ['状态', 'status'], ['诉求标题', 'title', true], ['诉求内容', 'desc', true],
     ['发起人', 'creatorName'], ['提交时间', 'submittedAt'], ['所属分公司', 'company'], ['所属部门／项目', 'unitName'],
-    ['主责总部部门', 'deptName'], ['主责部门经理', 'manager'], ['承办人', 'handlerName'], ['销项批准时间', 'closedAt']],
+    ['主责总部部门', 'deptName'], ['主责部门经理', 'manager'], ['承办人', 'handlerName']],
   suggestions: [['建议编号', 'id'], ['状态', 'status'], ['建议标题', 'title', true], ['涉及制度/流程', 'flow', true],
     ['建议内容', 'desc', true], ['发起人', 'creatorName'], ['提交时间', 'createdAt'], ['所属分公司', 'company'],
     ['所属部门／项目', 'unitName'], ['主责总部部门', 'deptName']],
@@ -112,6 +117,11 @@ export default {
       return this.currentRecord
     },
     kind () { return (this.child || this.type === 'mine') ? 'executions' : this.type },
+    appealResultTitle () {
+      if (this.row.status === '已销项') return '最终完成情况'
+      if (this.row.status === '待销项审批') return '本次销项完成情况'
+      return '问题解决进展'
+    },
     projectList () { return this.mode !== 'detail' || this.showProjects },
     fields () {
       if (this.kind === 'relations') return [...details.relations, [this.row.type === PROJECT ? '项目经理' : '分公司部门经理', 'manager'], ['联系方式', 'managerPhone']]

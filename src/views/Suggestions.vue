@@ -42,7 +42,7 @@
           <div class="form-grid">
             <a-form-model-item label="回复人"><div class="readonly-box">{{ review.manager }}</div></a-form-model-item>
             <a-form-model-item label="回复建议" required><a-radio-group v-model="reply.decision" @change="onDecision">
-              <a-radio value="改">改</a-radio><a-radio value="不改">不改</a-radio>
+              <a-radio v-for="option in decisionOptions" :key="option.value" :value="option.value">{{ option.label }}</a-radio>
             </a-radio-group></a-form-model-item>
           </div>
           <a-form-model-item v-if="reply.decision === '改'" label="计划完成时间"><a-date-picker v-model="reply.deadline" /></a-form-model-item>
@@ -57,12 +57,13 @@ import BusinessList from '../components/BusinessList.vue'
 import RecordDetail from '../components/RecordDetail.vue'
 import FileUploader from '../components/FileUploader.vue'
 import { fmtDate } from '../utils/date'
+import { SUGGESTION_DECISIONS } from '../utils/workflow'
 
 const blank = () => ({ title: '', flow: '', desc: '', deptId: undefined, attachments: [] })
 export default {
   name: 'SuggestionsView', components: { BusinessList, RecordDetail, FileUploader },
   data: () => ({ form: blank(), editing: false, original: null, detail: null, review: null,
-    reply: { decision: '', comment: '', deadline: null } }),
+    decisionOptions: SUGGESTION_DECISIONS, reply: { decision: '', comment: '', deadline: null } }),
   computed: {
     author () { return this.original ? this.$store.getPerson(this.original.creatorId) : this.$store.currentUser },
     org () { return this.$store.orgOf(this.author) }

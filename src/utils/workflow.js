@@ -1,6 +1,16 @@
 import { PROJECT, DEPARTMENT, APPEAL_STATES, staffOrg, targetOf, personName } from './serviceData'
 import { nextCode } from './businessCodes'
 
+// 沿用已有回复值，历史记录和新表单共用同一套显示文字。
+export const SUGGESTION_DECISIONS = [
+  { value: '改', label: '采纳' },
+  { value: '不改', label: '不采纳' }
+]
+
+export function suggestionDecisionLabel (value) {
+  return SUGGESTION_DECISIONS.find(option => option.value === value)?.label
+}
+
 export function submitAppeal (db, form, operator, time, id) {
   const original = id && db.appeals.find(row => row.id === id && !row.deleted)
   if (id && (!original || !['待审批', '已退回'].includes(original.status))) return '当前状态不允许修改诉求'
@@ -47,6 +57,31 @@ export function reviewAppeal (db, id, stage, approved, handlerId, comment, opera
     responsible: manager, operator: operator.name, note })
 }
 
+export function updateAppealProgress (db, id, form, operator, time) {
+  const appeal = db.appeals.find(row => row.id === id && !row.deleted)
+  if (!appeal || appeal.status !== '办理中') return '仅办理中的诉求可更新进展'
+  const content = (form.content || '').trim()
+  if (!content) return '请填写问题解决进展'
+  appeal.history.push({ time, action: '更新进展', note: content, attachments: form.attachments || [],
+    responsible: personName(db, appeal.handlerId), operator: operator.name })
+}
+
+export function currentAppealResult (appeal) {
+  if (['待销项审批', '已销项'].includes(appeal.status)) return appeal.completion
+  if (appeal.status !== '办理中') return null
+
+  // 记录按保存顺序追加，同一分钟内退回、更新、再送审也能区分先后。
+  for (let i = appeal.history.length - 1; i >= 0; i--) {
+    const entry = appeal.history[i]
+    if (entry.action === '提交销项') return { ...appeal.completion, operator: entry.operator, time: entry.time }
+    // “进展”和“日报”是旧版迁入办理记录的业务进展。
+    if (['更新进展', '进展', '日报'].includes(entry.action) && entry.note) {
+      return { content: entry.note, attachments: entry.attachments, operator: entry.operator, time: entry.time }
+    }
+  }
+  return appeal.completion
+}
+
 export function requestClosure (db, id, form, operator, time) {
   const appeal = db.appeals.find(row => row.id === id && !row.deleted)
   if (!appeal || appeal.status !== '办理中') return '仅办理中的诉求可申请销项'
@@ -73,12 +108,13 @@ export function submitSuggestion (db, form, operator, time, id) {
 export function replySuggestion (db, id, form, operator, time) {
   const s = db.suggestions.find(row => row.id === id && !row.deleted)
   if (!s || s.status !== '待回复') return '该建议已经回复'
-  if (!['改', '不改'].includes(form.decision) || !form.comment.trim()) return '请选择改或不改，并填写回复说明'
+  const label = suggestionDecisionLabel(form.decision)
+  if (!label || !form.comment.trim()) return '请选择采纳或不采纳，并填写回复说明'
   const manager = db.departments.find(d => d.id === s.deptId)
   s.reply = { decision: form.decision, deadline: form.decision === '改' ? form.deadline || '' : '',
     comment: form.comment.trim(), by: manager.managerId, time }
   s.status = '已回复'
-  s.history.push({ time, action: '经理回复', operator: operator.name, responsible: manager.manager, note: form.decision + '。' + s.reply.comment })
+  s.history.push({ time, action: '经理回复', operator: operator.name, responsible: manager.manager, note: label + '。' + s.reply.comment })
 }
 
 export function appealStats (appeals) {

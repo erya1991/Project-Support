@@ -3,6 +3,7 @@ import { fmtDate } from './date'
 import { matchesKeyword, inDateRange } from './listQuery'
 import { PROJECT, DEPARTMENT, APPEAL_STATES, personName, workRows, targetOf } from './serviceData'
 import { dailyRows, reportRow } from './reportData'
+import { currentAppealResult, SUGGESTION_DECISIONS, suggestionDecisionLabel } from './workflow'
 
 export const LIST_TITLES = { appeals: '基层诉求', works: '部门重点工作', executions: '项目执行情况', reports: '日报',
   suggestions: '制度改进建议', relations: '帮扶关系', mine: '我的重点工作' }
@@ -36,7 +37,7 @@ export function listFilterFields (type, store) {
       text('projectNeeds', '项目层面服务需求'), text('workContent', '当日工作开展情况'), text('newIssues', '需协调问题')],
     appeals: [text('title', '诉求标题'), owner, state([...APPEAL_STATES, '已退回']), company, text('id', '诉求单号'),
       text('creatorName', '发起人'), text('unitName', '所属部门／项目'), text('handlerName', '承办人'), text('desc', '诉求内容'), dateRange('submitRange', '提交时间', 'submittedAt')],
-    suggestions: [text('title', '建议标题'), owner, state(['待回复', '已回复']), select('decision', '回复结果', values(['改', '不改'])),
+    suggestions: [text('title', '建议标题'), owner, state(['待回复', '已回复']), select('decision', '回复结果', SUGGESTION_DECISIONS),
       text('id', '建议编号'), text('creatorName', '发起人'), select('company', '所属分公司', values(['公司总部', ...db.companies])),
       text('unitName', '所属部门／项目'), text('flow', '涉及制度/流程'), text('desc', '建议内容'), text('comment', '回复说明'), dateRange('createdRange', '提交时间', 'createdAt')],
     weekly: [text('personName', '填报人'), dept, project, company, text('needs', '项目层面服务需求'), text('workContent', '当日工作开展情况'),
@@ -92,8 +93,12 @@ export function listRows (type, store, filters = {}) {
     rows = db[type].filter(r => !r.deleted).map(r => {
       const dept = store.getDept(r.deptId)
       const base = { ...r, deptName: dept.name, manager: dept.manager, creatorName: personName(db, r.creatorId) }
-      if (type === 'appeals') return { ...base, handlerName: personName(db, r.handlerId) }
-      return { ...base, decision: r.reply && r.reply.decision, comment: r.reply && r.reply.comment }
+      if (type === 'appeals') {
+        const result = currentAppealResult(r)
+        return { ...base, handlerName: personName(db, r.handlerId), result, progressContent: result?.content || '' }
+      }
+      const decision = r.reply?.decision
+      return { ...base, decision, decisionLabel: suggestionDecisionLabel(decision), comment: r.reply?.comment }
     })
   }
   return filterListRows(type, rows, filters, store)
@@ -114,9 +119,10 @@ const specs = {
     ['填报状态', 'status', 65], ['首次填报人', 'firstName', 75], ['首次录入时间', 'firstAt', 103],
     ['最后修改人', 'lastName', 75], ['修改时间', 'lastAt', 103]],
   appeals: [['单号', 'id', 115], ['诉求标题', 'title', 170], ['发起人', 'creatorName', 65], ['所属分公司', 'company', 92],
-    ['所属部门／项目', 'unitName', 120], ['主责部门', 'deptName', 110], ['承办人', 'handlerName', 65], ['当前状态', 'status', 90], ['提交时间', 'submittedAt', 116]],
+    ['所属部门／项目', 'unitName', 120], ['主责部门', 'deptName', 110], ['承办人', 'handlerName', 65],
+    ['当前状态', 'status', 90], ['问题解决进展', 'progressContent', 180], ['提交时间', 'submittedAt', 116]],
   suggestions: [['建议编号', 'id', 116], ['建议标题', 'title', 180], ['发起人', 'creatorName', 68], ['所属分公司', 'company', 95],
-    ['所属部门／项目', 'unitName', 118], ['主责部门', 'deptName', 115], ['回复结果', 'decision', 70], ['当前状态', 'status', 78]],
+    ['所属部门／项目', 'unitName', 118], ['主责部门', 'deptName', 115], ['回复结果', 'decisionLabel', 70], ['当前状态', 'status', 78]],
   reports: [['填报日期', 'date', 101], ['填报人', 'personName', 70], ['所属分公司', 'company', 108], ['帮扶项目', 'projectName', 167],
     ['是否到岗', 'attendText', 68], ['当日工作开展情况', 'workContent', 214], ['填报状态', 'status', 76]],
   allReports: [['填报日期', 'date', 90], ['填报人', 'personName', 58], ['总部部门', 'deptName', 92], ['所属分公司', 'company', 92],

@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx-js-style'
-import { todayStr } from './date'
+import { beijingNow, todayStr } from './date'
 import { buildDailyReport, buildWeeklyReport } from './reportData'
 import store from '../store'
 
@@ -87,6 +87,49 @@ function newBook () {
 
 function addSheet (wb, ws, name) {
   XLSX.utils.book_append_sheet(wb, ws, name)
+}
+
+export function exportAppealProgress (appeals) {
+  const date = beijingNow()
+  const title = '基层诉求问题解决进展汇总'
+  const headers = ['序号', '发起人', '所属部门／项目', '需协调解决问题', '主责部门', '是否销项闭环',
+    '截至' + date.format('M月D日') + '问题解决进展']
+  const ws = {}
+  put(ws, 0, 0, title, STYLE.title)
+  merge(ws, 0, 0, 0, headers.length - 1)
+  setRowHeight(ws, 0, 32)
+  const headerStyle = { ...STYLE.header, fill: { patternType: 'solid', fgColor: { rgb: 'D9D9D9' } } }
+  headers.forEach((label, col) => put(ws, 1, col, label, headerStyle))
+  setRowHeight(ws, 1, 28)
+  setCols(ws, [7, 13, 30, 52, 22, 15, 58])
+
+  // 工具栏传入已生效筛选的全部记录。分组后沿用各组在列表中的出现顺序。
+  const groups = new Map()
+  for (const appeal of appeals) {
+    const key = JSON.stringify([appeal.creatorId, appeal.company, appeal.type, appeal.unitId])
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(appeal)
+  }
+  let row = 2
+  for (const group of groups.values()) {
+    const start = row
+    for (const appeal of group) {
+      const first = row === start
+      const values = [row - 1, first ? appeal.creatorName : '', first ? appeal.company + ' · ' + appeal.unitName : '',
+        appeal.desc, appeal.deptName, appeal.status === '已销项' ? '是' : '否', appeal.progressContent || '—']
+      values.forEach((value, col) => put(ws, row, col, value, col === 3 || col === 6 ? STYLE.body : STYLE.center))
+      row++
+    }
+    if (row - start > 1) {
+      merge(ws, start, 1, row - 1, 1)
+      merge(ws, start, 2, row - 1, 2)
+    }
+  }
+  finish(ws, row, headers.length)
+  const wb = newBook()
+  addSheet(wb, ws, title)
+  wb.Workbook = { Names: [{ Name: '_xlnm.Print_Titles', Sheet: 0, Ref: "'" + title + "'!$1:$2" }] }
+  download(wb, title + '_' + date.format('YYYYMMDD') + '.xlsx')
 }
 
 export function exportWorksExcel (works) {

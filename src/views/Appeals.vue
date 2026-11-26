@@ -1,11 +1,17 @@
 <template>
   <div>
-    <business-list type="appeals" deep-link :action-width="145">
-      <template #toolbar><a-button type="primary" icon="plus" @click="openForm()">新增基层诉求</a-button></template>
+    <business-list type="appeals" deep-link :action-width="175">
+      <template #toolbar="{rows}">
+        <a-button type="primary" icon="plus" @click="openForm()">新增基层诉求</a-button>
+        <a-button icon="download" @click="exportAppealProgress(rows)">导出进展汇总</a-button>
+      </template>
       <template #actions="{row}">
         <a v-if="row.status === '待审批'" class="link-btn" @click="openReview(row)">受理审批</a>
         <a v-if="['待审批','已退回'].includes(row.status)" class="link-btn" @click="openForm(row)">{{ row.status === '已退回' ? '修改重提' : '编辑' }}</a>
-        <a v-if="row.status === '办理中'" class="link-btn" @click="openClosure(row)">申请销项</a>
+        <template v-if="row.status === '办理中'">
+          <a class="link-btn" @click="openProgress(row)">更新进展</a>
+          <a class="link-btn" @click="openClosure(row)">申请销项</a>
+        </template>
         <a v-if="row.status === '待销项审批'" class="link-btn" @click="openReview(row)">销项审批</a>
         <a class="link-btn" @click="detail = row">详情</a>
         <a-popconfirm v-if="['待审批','已退回','办理中'].includes(row.status) && !row.completion" title="确认删除该诉求？" @confirm="remove(row)">
@@ -55,6 +61,20 @@
         <person-select v-model="handlerId" placeholder="从全公司人员中选择" />
       </a-form-model-item></a-form-model>
     </approval-modal>
+    <a-modal v-if="updating" :visible="true" title="更新进展" :width="720" :mask-closable="false"
+      wrap-class-name="appeal-detail-modal" ok-text="保存" @cancel="updating = null" @ok="saveProgress">
+      <div class="detail-grid">
+        <div class="detail-item"><span class="detail-label">诉求单号</span>{{ updating.id }}</div>
+        <div class="detail-item"><span class="detail-label">承办人</span>{{ updating.handlerName }}</div>
+        <div class="detail-item full"><span class="detail-label">诉求标题</span><span class="detail-value">{{ updating.title }}</span></div>
+        <div class="detail-item full"><span class="detail-label">诉求内容</span><span class="detail-value">{{ updating.desc }}</span></div>
+        <div class="detail-item full"><span class="detail-label">主责部门</span>{{ updating.deptName }}</div>
+      </div>
+      <a-form-model class="drawer-section" layout="vertical">
+        <a-form-model-item label="问题解决进展" required><a-textarea v-model="progress.content" :rows="4" /></a-form-model-item>
+        <a-form-model-item label="附件"><file-uploader v-model="progress.attachments" /></a-form-model-item>
+      </a-form-model>
+    </a-modal>
     <a-modal :visible="!!closing" title="申请诉求销项" :width="720" :mask-closable="false" ok-text="提交销项" @cancel="closing = null" @ok="closeRequest">
       <template v-if="closing">
         <div class="alert-note">{{ closing.id }} · {{ closing.title }}　承办人 {{ closing.handlerName }}</div>
@@ -76,12 +96,13 @@ import FileUploader from '../components/FileUploader.vue'
 import OrgTargetFields from '../components/OrgTargetFields.vue'
 import PersonSelect from '../components/PersonSelect.vue'
 import { fmtDate, todayStr } from '../utils/date'
+import { exportAppealProgress } from '../utils/exportExcel'
 
 const blank = () => ({ title: '', desc: '', deptId: undefined, company: undefined, type: '项目级', targetId: undefined, attachments: [] })
 export default {
   name: 'AppealsView', components: { BusinessList, RecordDetail, ApprovalModal, FileUploader, OrgTargetFields, PersonSelect },
   data: () => ({ editing: false, original: null, form: blank(), detail: null, review: null, handlerId: undefined,
-    closing: null, closure: { content: '', date: null, attachments: [] } }),
+    updating: null, progress: { content: '', attachments: [] }, closing: null, closure: { content: '', date: null, attachments: [] } }),
   computed: {
     author () { return this.original ? this.$store.getPerson(this.original.creatorId) : this.$store.currentUser },
     org () { return this.$store.orgOf(this.author) },
@@ -89,6 +110,7 @@ export default {
     reviewNodes () { return [{ name: this.acceptance ? '主责部门经理受理' : '主责部门经理审批销项', approver: this.review.manager, result: '待处理' }] }
   },
   methods: {
+    exportAppealProgress,
     openForm (row) { this.original = row; this.form = row ? { ...row, targetId: row.unitId, attachments: row.attachments.slice() } : blank(); this.editing = true },
     updateTarget (values) { Object.assign(this.form, values) },
     submit () {
@@ -104,10 +126,19 @@ export default {
       this.review = null
       this.$message.success(action === 'pass' ? '审批已通过' : '已退回')
     },
+    openProgress (row) {
+      this.updating = row
+      this.progress = { content: row.progressContent, attachments: [] }
+    },
+    saveProgress () {
+      const res = this.$store.updateAppealProgress(this.updating.id, this.progress)
+      if (!res.ok) return this.$message.warning(res.message)
+      this.updating = null
+      this.$message.success('问题解决进展已保存')
+    },
     openClosure (row) {
       this.closing = row
-      const last = row.completion
-      this.closure = { content: last ? last.content : '', date: moment(last ? last.date : todayStr()), attachments: last ? last.attachments.slice() : [] }
+      this.closure = { content: '', date: moment(todayStr()), attachments: (row.completion?.attachments || []).slice() }
     },
     closeRequest () {
       const res = this.$store.requestClosure(this.closing.id, { ...this.closure, date: fmtDate(this.closure.date) })
