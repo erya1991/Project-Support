@@ -1,4 +1,4 @@
-import { PROJECT, DEPARTMENT, APPEAL_STATES, staffOrg, targetOf, personName } from './serviceData'
+import { PROJECT, DEPARTMENT, staffOrg, targetOf, personName } from './serviceData'
 import { nextCode } from './businessCodes'
 
 // 沿用已有回复值，历史记录和新表单共用同一套显示文字。
@@ -66,6 +66,15 @@ export function updateAppealProgress (db, id, form, operator, time) {
     responsible: personName(db, appeal.handlerId), operator: operator.name })
 }
 
+// “进展”和“日报”是旧版迁入办理记录的业务进展。
+function isProgressEntry (entry) {
+  return ['更新进展', '进展', '日报'].includes(entry.action) && entry.note
+}
+
+export function latestAppealProgressEntry (appeal) {
+  return (appeal.history || []).slice().reverse().find(isProgressEntry)
+}
+
 export function currentAppealResult (appeal) {
   if (['待销项审批', '已销项'].includes(appeal.status)) return appeal.completion
   if (appeal.status !== '办理中') return null
@@ -74,8 +83,7 @@ export function currentAppealResult (appeal) {
   for (let i = appeal.history.length - 1; i >= 0; i--) {
     const entry = appeal.history[i]
     if (entry.action === '提交销项') return { ...appeal.completion, operator: entry.operator, time: entry.time }
-    // “进展”和“日报”是旧版迁入办理记录的业务进展。
-    if (['更新进展', '进展', '日报'].includes(entry.action) && entry.note) {
+    if (isProgressEntry(entry)) {
       return { content: entry.note, attachments: entry.attachments, operator: entry.operator, time: entry.time }
     }
   }
@@ -117,6 +125,13 @@ export function replySuggestion (db, id, form, operator, time) {
   s.history.push({ time, action: '经理回复', operator: operator.name, responsible: manager.manager, note: label + '。' + s.reply.comment })
 }
 
+export const IN_PROGRESS_APPEAL_STATES = ['办理中', '待销项审批']
+
 export function appealStats (appeals) {
-  return Object.fromEntries(APPEAL_STATES.map(status => [status, appeals.filter(a => !a.deleted && a.status === status).length]))
+  const visible = appeals.filter(a => !a.deleted)
+  return {
+    total: visible.length,
+    inProgress: visible.filter(a => IN_PROGRESS_APPEAL_STATES.includes(a.status)).length,
+    closed: visible.filter(a => a.status === '已销项').length
+  }
 }

@@ -10,7 +10,7 @@ import { listColumns, fitColumns, detailLinks } from '../utils/businessLists'
 
 export default {
   name: 'BusinessTable',
-  props: { type: { type: String, required: true }, rows: { type: Array, required: true }, height: Number, compact: Boolean,
+  props: { type: { type: String, required: true }, rows: { type: Array, required: true }, height: Number, availableWidth: Number, compact: Boolean,
     actionWidth: { type: Number, default: 120 } },
   data () {
     return { pagination: { current: 1, pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'],
@@ -21,13 +21,13 @@ export default {
       const h = this.$createElement
       const result = listColumns(this.type).map(column => {
         const key = column.dataIndex
-        return { title: column.title, dataIndex: key, key, width: column.width,
+        return { ...column,
           customRender: (value, row) => {
-            if (key === 'status' || key === 'frozenText') return h(StatusTag, { props: { status: value } })
+            if (['status', 'approvalStatus', 'frozenText'].includes(key)) return h(StatusTag, { props: { status: value } })
             const content = value == null || value === '' ? '—' : String(value)
             const isProgress = this.type === 'works' && key === 'progressText'
             const link = isProgress || detailLinks[this.type].includes(key)
-            const longText = key === 'content' || key === 'progressContent'
+            const longText = column.fixedText
             const cellClass = { 'business-cell': true, 'business-long-text': longText }
             const cell = link
               ? h('a', { class: cellClass, attrs: { href: '#' }, on: { click: event => { event.preventDefault(); this.$emit(isProgress ? 'progress' : 'detail', row) } } }, content)
@@ -38,8 +38,7 @@ export default {
       result.unshift({ title: '序号', key: 'sequence', width: 46, align: 'center',
         customRender: (value, row, i) => (this.pagination.current - 1) * this.pagination.pageSize + i + 1 })
       if (this.$scopedSlots.actions) result.push({ title: '操作', key: 'actions', width: this.actionWidth, scopedSlots: { customRender: 'actions' } })
-      const fixedTextColumn = { works: 'content', mine: 'content', appeals: 'progressContent' }
-      return fitColumns(result, fixedTextColumn[this.type])
+      return fitColumns(result, this.availableWidth)
     }
   },
   watch: {

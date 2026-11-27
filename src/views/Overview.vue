@@ -6,7 +6,7 @@
         <div class="stat-group-title"><a-icon :type="group.icon" /> {{ group.title }}</div>
         <div class="stat-group-row">
           <button v-for="m in group.metrics" :key="m.label" type="button" class="stat-group-cell" @click="select(m)">
-            <span class="stat-label">{{ m.label }}</span><span class="stat-value" :class="m.color">{{ m.value }}<small>{{ m.unit }}</small></span>
+            <span class="stat-label">{{ m.label }}</span><span class="stat-value" :class="m.color">{{ m.value ?? '—' }}<small v-if="m.value != null">{{ m.unit }}</small></span>
           </button>
         </div>
       </div>
@@ -28,7 +28,7 @@ import moment from 'moment'
 import BusinessList from '../components/BusinessList.vue'
 import BusinessTable from '../components/BusinessTable.vue'
 import { LIST_TITLES } from '../utils/businessLists'
-import { APPEAL_STATES } from '../utils/serviceData'
+import { IN_PROGRESS_APPEAL_STATES } from '../utils/workflow'
 export default {
   name: 'OverviewView', components: { BusinessList, BusinessTable },
   data: () => ({ tab: 'relations', tabs: ['relations', 'works', 'appeals', 'reports', 'suggestions'], titles: LIST_TITLES, preset: {}, attendanceMetric: null }),
@@ -41,20 +41,28 @@ export default {
     groups () {
       const s = this.stats
       const date = moment(this.$store.state.day)
+      const dueReports = { date, eligible: true }
+      const enabledWorks = { status: '启用' }
       const metric = (label, value, unit, tab, filters, color) => ({ label, value, unit, tab, filters, color })
       return [
         { title: '人员到岗统计', icon: 'team', metrics: [
           metric('服务人员数', s.serviceCount, '人', 'attendance', {}),
           metric('今日到岗人数', s.attended, '人', 'attendance', { attendance: '已到岗' }, 'blue'),
-          metric('今日到岗率', s.attendanceRate ?? '—', s.due ? '%' : '', 'attendance', { eligible: true })] },
-        { title: '部门重点工作', icon: 'solution', metrics: [
-          metric('启用事项', s.works, '项', 'works', { status: '启用' }),
-          metric('项目执行进度', s.filled + '/' + s.executions, '', 'works', { status: '启用' }, 'blue')] },
-        { title: '基层诉求办理', icon: 'profile', metrics: APPEAL_STATES.map((status, i) =>
-          metric(status, s.appeals[status], '条', 'appeals', { status }, ['orange', 'blue', 'orange', 'green'][i])) },
+          metric('今日到岗率', s.attendanceRate, '%', 'attendance', { eligible: true })] },
         { title: '服务日报填报', icon: 'form', metrics: [
-          metric('今日应填报人数', s.due, '人', 'reports', { date, eligible: true }),
-          metric('今日已填报人数', s.submitted, '人', 'reports', { date, eligible: true, status: '已提交' }, 'green')] }
+          metric('今日应填报日报数', s.due, '份', 'reports', dueReports),
+          metric('今日已填报日报数', s.submitted, '份', 'reports', { date, status: '已提交' }, 'green'),
+          metric('今日填报率', s.reportRate, '%', 'reports', dueReports, 'blue')] },
+        { title: LIST_TITLES.works, icon: 'solution', metrics: [
+          metric('启用事项总数', s.works, '项', 'works', enabledWorks),
+          metric('应填报项次', s.executions, '项次', 'works', enabledWorks),
+          metric('已填报项次', s.filled, '项次', 'works', enabledWorks, 'green'),
+          metric('落实情况填报率', s.workRate, '%', 'works', enabledWorks, 'blue')] },
+        { title: '基层诉求办理', icon: 'profile', metrics: [
+          metric('诉求总数', s.appeals.total, '条', 'appeals', {}),
+          metric('办理中', s.appeals.inProgress, '条', 'appeals', { status: IN_PROGRESS_APPEAL_STATES.slice() }, 'blue'),
+          metric('已销项', s.appeals.closed, '条', 'appeals', { status: '已销项' }, 'green'),
+          metric('诉求销项率', s.closureRate, '%', 'appeals', {})] }
       ]
     }
   },

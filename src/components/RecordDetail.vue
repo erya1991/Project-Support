@@ -1,14 +1,18 @@
 <template>
   <a-modal :visible="!!record" :title="heading" :width="kind === 'works' ? 1060 : 810" wrap-class-name="work-detail-modal" @cancel="$emit('close')">
     <template v-if="row">
+      <div v-if="kind === 'appeals'" class="drawer-section-title">基本信息</div>
       <div class="detail-grid">
         <div v-for="[label, key, wide] in fields" :key="key" class="detail-item" :class="{ full: wide }">
           <span class="detail-label">{{ label }}</span>
           <a v-if="kind === 'works' && !projectList && key === 'progressText'" href="#" class="link-btn" @click.prevent="showProjects = true">{{ value(key) }}</a>
           <span v-else class="detail-value">{{ value(key) }}</span>
         </div>
+        <div v-if="kind === 'appeals'" class="detail-item full">
+          <span class="detail-label">诉求附件</span><file-uploader v-if="row.attachments && row.attachments.length" :value="row.attachments" readonly />
+        </div>
       </div>
-      <section v-if="row.attachments" class="drawer-section"><div class="drawer-section-title">附件</div><file-uploader :value="row.attachments" readonly /></section>
+      <section v-if="kind !== 'appeals' && row.attachments" class="drawer-section"><div class="drawer-section-title">附件</div><file-uploader :value="row.attachments" readonly /></section>
       <template v-if="kind === 'works'">
         <section v-for="group in projectGroups" :key="group.title" class="drawer-section">
           <div class="drawer-section-title">{{ group.title }}（{{ group.rows.length }}）</div>
@@ -22,16 +26,16 @@
         </section>
       </template>
       <section v-if="kind === 'appeals'" class="drawer-section">
-        <div class="drawer-section-title">{{ appealResultTitle }}</div>
+        <div class="drawer-section-title">完成情况</div>
         <div class="detail-grid">
-          <div class="detail-item full"><span class="detail-value">{{ row.progressContent || '—' }}</span></div>
-          <template v-if="row.result">
-            <div v-if="row.result.operator" class="detail-item"><span class="detail-label">更新人</span>{{ row.result.operator }}</div>
-            <div v-if="row.result.time" class="detail-item"><span class="detail-label">更新时间</span>{{ row.result.time }}</div>
-            <div v-if="row.result.date" class="detail-item"><span class="detail-label">完成日期</span>{{ row.result.date }}</div>
-            <div v-if="row.status === '已销项'" class="detail-item"><span class="detail-label">销项批准时间</span>{{ row.closedAt || '—' }}</div>
-            <div class="detail-item full"><span class="detail-label">{{ row.result.date ? '佐证附件' : '进展附件' }}</span><file-uploader :value="row.result.attachments" readonly /></div>
-          </template>
+          <div class="detail-item full"><span class="detail-label">问题解决进展</span><span class="detail-value">{{ appealProgress.note }}</span></div>
+          <div class="detail-item"><span class="detail-label">进展更新人</span><span class="detail-value">{{ appealProgress.operator }}</span></div>
+          <div class="detail-item"><span class="detail-label">进展更新时间</span><span class="detail-value">{{ appealProgress.time }}</span></div>
+          <div class="detail-item full"><span class="detail-label">进展附件</span><file-uploader v-if="appealProgress.attachments && appealProgress.attachments.length" :value="appealProgress.attachments" readonly /></div>
+          <div class="detail-item full"><span class="detail-label">销项完成情况</span><span class="detail-value">{{ appealCompletion.content }}</span></div>
+          <div class="detail-item"><span class="detail-label">完成日期</span><span class="detail-value">{{ appealCompletion.date }}</span></div>
+          <div class="detail-item"><span class="detail-label">销项批准时间</span><span class="detail-value">{{ row.closedAt }}</span></div>
+          <div class="detail-item full"><span class="detail-label">佐证附件</span><file-uploader v-if="appealCompletion.attachments && appealCompletion.attachments.length" :value="appealCompletion.attachments" readonly /></div>
         </div>
       </section>
       <section v-if="kind === 'suggestions' && row.reply" class="drawer-section">
@@ -44,7 +48,7 @@
           <div class="detail-item"><span class="detail-label">回复时间</span>{{ row.reply.time }}</div>
         </div>
       </section>
-      <section v-if="kind !== 'relations' && row.history && row.history.length" class="drawer-section">
+      <section v-if="!['relations', 'appeals', 'suggestions'].includes(kind) && row.history && row.history.length" class="drawer-section">
         <div class="drawer-section-title">办理记录</div>
         <a-timeline><a-timeline-item v-for="(entry, i) in row.history" :key="i">
           <b>{{ entry.action }}</b>　{{ entry.time }}　<span class="muted">操作人 {{ entry.operator }}</span>
@@ -76,6 +80,7 @@ import FileUploader from './FileUploader.vue'
 import ExecutionEditor from './ExecutionEditor.vue'
 import { LIST_TITLES, listRows } from '../utils/businessLists'
 import { PROJECT, workRows } from '../utils/serviceData'
+import { latestAppealProgressEntry } from '../utils/workflow'
 
 const details = {
   relations: [['关系编号', 'id'], ['状态', 'status'], ['总部帮扶人员', 'personName'], ['工号', 'employeeNo'],
@@ -90,7 +95,7 @@ const details = {
   appeals: [['诉求单号', 'id'], ['状态', 'status'], ['诉求标题', 'title', true], ['诉求内容', 'desc', true],
     ['发起人', 'creatorName'], ['提交时间', 'submittedAt'], ['所属分公司', 'company'], ['所属部门／项目', 'unitName'],
     ['主责总部部门', 'deptName'], ['主责部门经理', 'manager'], ['承办人', 'handlerName']],
-  suggestions: [['建议编号', 'id'], ['状态', 'status'], ['建议标题', 'title', true], ['涉及制度/流程', 'flow', true],
+  suggestions: [['建议编号', 'id'], ['建议标题', 'title', true], ['涉及制度/流程', 'flow', true],
     ['建议内容', 'desc', true], ['发起人', 'creatorName'], ['提交时间', 'createdAt'], ['所属分公司', 'company'],
     ['所属部门／项目', 'unitName'], ['主责总部部门', 'deptName']],
   reports: [['填报人', 'personName'], ['填报日期', 'date'], ['总部部门', 'deptName'], ['填报状态', 'status'],
@@ -117,11 +122,8 @@ export default {
       return this.currentRecord
     },
     kind () { return (this.child || this.type === 'mine') ? 'executions' : this.type },
-    appealResultTitle () {
-      if (this.row.status === '已销项') return '最终完成情况'
-      if (this.row.status === '待销项审批') return '本次销项完成情况'
-      return '问题解决进展'
-    },
+    appealProgress () { return latestAppealProgressEntry(this.row) || {} },
+    appealCompletion () { return this.row.completion || {} },
     projectList () { return this.mode !== 'detail' || this.showProjects },
     fields () {
       if (this.kind === 'relations') return [...details.relations, [this.row.type === PROJECT ? '项目经理' : '分公司部门经理', 'manager'], ['联系方式', 'managerPhone']]
@@ -147,6 +149,7 @@ export default {
   methods: {
     value (key) {
       if (key === 'projectDetails') return this.row.projects.map(p => p.company + ' · ' + p.name).join('\n')
+      if (this.kind === 'appeals') return this.row[key]
       return this.row[key] || '—'
     },
     changes (rev) {

@@ -23,6 +23,7 @@ async function main () {
     const { todayStr } = await server.ssrLoadModule('/src/utils/date.js')
     const { workRows, myWork } = await server.ssrLoadModule('/src/utils/serviceData.js')
     const { listRows } = await server.ssrLoadModule('/src/utils/businessLists.js')
+    const { latestAppealProgressEntry } = await server.ssrLoadModule('/src/utils/workflow.js')
     const { dailyRows, reportBody, buildDailyReport, buildWeeklyReport } = await server.ssrLoadModule('/src/utils/reportData.js')
     const { default: uploader } = await server.ssrLoadModule('/src/components/FileUploader.vue')
     const { default: appealsView } = await server.ssrLoadModule('/src/views/Appeals.vue')
@@ -97,6 +98,7 @@ async function main () {
         [appeal.id, appeal.title, appeal.creatorId, appeal.personId, appeal.deptId, appeal.projectId, appeal.createdAt])
       assert.equal(row.history[0].note, appeal.progress[0].content)
       assert.equal(row.progressContent, appeal.progress[0].content)
+      assert.equal(latestAppealProgressEntry(row).note, appeal.progress[0].content)
       assert.deepEqual(row.attachments, appeal.attachments)
       ok(store.requestClosure(row.id, { content: '已完成调拨', date: today, attachments: [] }))
       store.selectPerson('B11')
@@ -198,6 +200,7 @@ async function main () {
       assert.equal(read().firstBy, 'P01'); assert.equal(read().firstAt, first); assert.equal(read().lastBy, 'P06')
       const totals = () => { const s = store.overviewStats(); return [s.filled, s.executions] }
       assert.deepEqual(totals(), [2, 4])
+      assert.equal(store.overviewStats().workRate, 50)
       ok(store.setRelationStatus(ax, '停用')); assert.deepEqual(totals(), [2, 4])
       ok(store.setRelationStatus(bx, '停用')); assert.deepEqual(totals(), [1, 2])
       assert.equal(read().scope, '历史'); assert.equal(read().content, '乙编辑 A-X')
@@ -303,13 +306,15 @@ async function main () {
       assert.deepEqual(forPerson('P01').attachments, submitted.attachments)
       assert.ok(!('appealId' in store.db.dailyReports[0]))
     })
-    scenario('历史日报保留项目快照；失去资格人员不计入当日卡片；冻结、管理员修订留痕', () => {
+    scenario('关系停用后移出当日应填，已提交日报和项目快照保留；冻结、管理员修订留痕', () => {
       emptyBusinesses()
       const first = addRelation('P01', 'J01'), second = addRelation('P01', 'J06')
       ok(store.saveReport(forPerson('P01'), submitted))
       ok(store.setRelationStatus(first, '停用')); ok(store.setRelationStatus(second, '停用'))
-      assert.deepEqual([store.overviewStats().due, store.overviewStats().submitted], [0, 0])
+      const stats = store.overviewStats()
+      assert.deepEqual([stats.due, stats.submitted, stats.reportRate, stats.attendanceRate], [0, 1, null, null])
       assert.equal(listRows('reports', store, { date: today, eligible: true }).length, 0)
+      assert.equal(listRows('reports', store, { date: today, status: '已提交' }).length, 1)
       assert.equal(forPerson('P01').projects.length, 2)
       setDay('2026-11-25'); store.init()
       const history = forPerson('P01', today)
@@ -373,7 +378,7 @@ async function main () {
       assert.equal(store.db.appeals[0].status, '已销项')
       assert.equal(store.db.appeals[0].closedAt.slice(0, 10), today)
       assert.equal(store.db.appeals[0].completion.date, '2026-11-10')
-      assert.equal(store.overviewStats().appeals['已销项'], 1)
+      assert.equal(store.overviewStats().appeals.closed, 1)
       assert.ok(buildWeeklyReport(store.db, '2026-11-23','2026-11-29').summary.includes('本周共销项1项'))
       assert.equal(store.db.appeals[0].history.at(-1).responsible, '杜正华')
       assert.equal(store.db.appeals[0].history.at(-1).operator, '林致远')
@@ -383,6 +388,7 @@ async function main () {
     scenario('诉求进展多次保存、销项退回与再送审、旧完成情况和当前结果', () => {
       const legacyClosed = listRows('appeals', store, { status: '已销项' })[0]
       assert.equal(legacyClosed.progressContent, legacyClosed.completion.content)
+      assert.equal(latestAppealProgressEntry(legacyClosed), undefined)
       ok(store.saveAppeal(appealForm))
       const id = store.db.appeals[0].id
       const row = () => listRows('appeals', store).find(r => r.id === id)
@@ -427,6 +433,7 @@ async function main () {
       ok(store.requestClosure(id, { content: '最终复核完成', date: today, attachments: [] }))
       ok(review('待销项审批', true, '同意销项'))
       assert.deepEqual([row().status, row().progressContent, row().closedAt.slice(0, 10)], ['已销项', '最终复核完成', today])
+      assert.equal(latestAppealProgressEntry(row()).note, '已取得回执')
       const firstSubmission = row().history.find(entry => entry.action === '提交销项')
       assert.ok(firstSubmission.note.includes(submission.content))
       assert.deepEqual(firstSubmission.attachments, [file])
@@ -440,6 +447,7 @@ async function main () {
         ok(store.saveSuggestion(suggestionForm))
         const s = store.db.suggestions[0]
         assert.equal(s.status, '待回复'); assert.ok(s.unitName); assert.equal(s.company, '华东分公司')
+        assert.equal(listRows('suggestions', store, { status: '待回复' })[0].approvalStatus, '处理中')
         store.selectPerson('P01') // 演示者可直接办理其他部门的节点。
         const form = { decision, comment: '回复说明', deadline: decision === '不改' ? '2027-01-01' : '' }
         ok(store.replySuggestion(s.id, form))
@@ -447,6 +455,7 @@ async function main () {
         assert.equal(reply.deadline, ''); assert.equal(reply.by, 'M02'); assert.ok(reply.time)
         const [result] = listRows('suggestions', store, { decision })
         assert.deepEqual([result.id, result.status, result.decisionLabel], [s.id, '已回复', label])
+        assert.equal(result.approvalStatus, '已完成')
         assert.equal(result.history.at(-1).note, label + '。' + form.comment)
         denied(store.replySuggestion(s.id, form)); denied(store.removeRequest('suggestions', s.id))
       }
@@ -460,6 +469,7 @@ async function main () {
       ok(store.saveReport(forPerson('P03'), { ...submitted, attend: false, absentReason: '总部开会' }))
       let s = store.overviewStats()
       assert.deepEqual([s.serviceCount, s.due, s.submitted, s.attended, s.attendanceRate], [4, 3, 2, 1, 33.3])
+      assert.equal(s.reportRate, 66.7)
       assert.deepEqual(s.attendance.map(r => [r.id, r.attendance]), [['P01', '已到岗'], ['P03', '未到岗'], ['P06', '未填报'], ['P16', '无应填']])
       assert.equal(s.attendance[0].projectName, '无锡深南电路、綦江江苏省人民医院')
       setDay('2026-11-25'); store.init()
@@ -478,11 +488,38 @@ async function main () {
       assert.equal(listRows('executions', store).length, s.executions)
       assert.equal(listRows('executions', store, { status: '已填写' }).length, s.filled)
       assert.equal(listRows('works', store, { status: '启用' }).length, s.works)
-      assert.equal(listRows('reports', store, { date: today, eligible: true, status: '已提交' }).length, s.submitted)
-      for (const [status, count] of Object.entries(s.appeals)) assert.equal(listRows('appeals', store, { status }).length, count)
+      assert.equal(listRows('reports', store, { date: today, eligible: true }).length, s.due)
+      assert.equal(listRows('reports', store, { date: today, status: '已提交' }).length, s.submitted)
+      assert.equal(listRows('appeals', store).length, s.appeals.total)
+      assert.equal(listRows('appeals', store, { status: ['办理中', '待销项审批'] }).length, s.appeals.inProgress)
+      assert.equal(listRows('appeals', store, { status: '已销项' }).length, s.appeals.closed)
+      for (const status of ['待审批', '已退回', '办理中', '待销项审批', '已销项']) {
+        const expectedIds = store.db.appeals.filter(a => !a.deleted && a.status === status).map(a => a.id)
+        assert.deepEqual(listRows('appeals', store, { status }).map(r => r.id), expectedIds)
+      }
       const match = listRows('works', store, { title: '风险', deptId: 'D02' })
       assert.equal(match.length, 1)
       assert.equal(localStorage.getItem(key), raw)
+    })
+    scenario('总览项次去重，历史销项和退回诉求计入总数，分母为零时无百分比', () => {
+      const before = store.overviewStats()
+      ok(store.change(db => {
+        const work = db.works.find(w => w.status === '启用')
+        work.executions.push({ ...work.executions.find(e => e.firstAt) })
+        const closed = db.appeals.find(a => a.status === '已销项')
+        const historical = { ...closed, id: '历史补录', submittedAt: '2024-03-01 09:00', history: [], closedAt: '' }
+        db.appeals.push(historical, { ...historical, id: '已删除销项', deleted: true })
+      }))
+      const s = store.overviewStats()
+      assert.deepEqual([s.executions, s.filled, s.workRate], [before.executions, before.filled, before.workRate])
+      assert.deepEqual(s.appeals, { total: 6, inProgress: 2, closed: 2 })
+      assert.equal(s.closureRate, 33.3)
+      assert.equal(listRows('appeals', store, { status: [] }).length, 6)
+      assert.deepEqual(listRows('appeals', store, { status: ['办理中', '待销项审批'] }).map(r => r.status).sort(), ['办理中', '待销项审批'])
+      assert.ok(listRows('appeals', store, { status: '已销项' }).some(r => r.id === '历史补录'))
+      emptyBusinesses()
+      const empty = store.overviewStats()
+      assert.deepEqual([empty.attendanceRate, empty.reportRate, empty.workRate, empty.closureRate], [null, null, null, null])
     })
     scenario('附件同批多选保留已有附件；未到岗按实际记录展示', () => {
       const component = (uploader.options || uploader)

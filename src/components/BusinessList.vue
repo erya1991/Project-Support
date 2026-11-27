@@ -3,7 +3,7 @@
     <list-query :type="type" v-model="filters" @query="query" @reset="reset" />
     <div v-if="$scopedSlots.toolbar" class="toolbar"><slot name="toolbar" :rows="rows" :filters="applied" /></div>
     <div ref="tableSpace" class="table-space">
-      <business-table ref="table" :type="tableType || type" :rows="rows" :height="tableHeight" :compact="fill" :action-width="actionWidth"
+      <business-table ref="table" :type="tableType || type" :rows="rows" :height="tableHeight" :available-width="tableWidth" :compact="fill" :action-width="actionWidth"
         @detail="openDetail($event)" @progress="openDetail($event, 'projects')">
         <template v-if="$scopedSlots.actions" #actions="{row}"><slot name="actions" :row="row" /></template>
       </business-table>
@@ -22,7 +22,7 @@ export default {
   props: { type: { type: String, required: true }, tableType: String, preset: Object, fill: Boolean, actionWidth: Number, deepLink: Boolean },
   data () {
     const filters = { ...emptyListFilters(this.type, this.$store), ...this.preset }
-    return { filters, applied: { ...filters }, selected: null, detailMode: 'detail', tableHeight: undefined }
+    return { filters, applied: { ...filters }, selected: null, detailMode: 'detail', tableHeight: undefined, tableWidth: undefined }
   },
   computed: { rows () { return listRows(this.type, this.$store, this.applied) } },
   watch: {
@@ -32,9 +32,16 @@ export default {
   },
   mounted () {
     this.openLinked()
-    if (this.fill) {
-      this.observer = new ResizeObserver(() => { this.tableHeight = Math.max(80, this.$refs.tableSpace.clientHeight - 106) })
-      this.observer.observe(this.$refs.tableSpace)
+    const measureWidth = ['appeals', 'suggestions'].includes(this.type)
+    if (this.fill || measureWidth) {
+      const space = this.$refs.tableSpace
+      const resize = () => {
+        if (measureWidth) this.tableWidth = space.clientWidth
+        if (this.fill) this.tableHeight = Math.max(80, space.clientHeight - 106)
+      }
+      resize()
+      this.observer = new ResizeObserver(resize)
+      this.observer.observe(space)
     }
   },
   beforeDestroy () { if (this.observer) this.observer.disconnect() },

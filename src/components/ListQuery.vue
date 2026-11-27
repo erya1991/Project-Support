@@ -4,7 +4,8 @@
       <div class="query-field-area">
       <a-form-item v-for="field in visibleFields" :key="field.key" :label="field.label">
         <a-input v-if="field.kind === 'text'" :value="value[field.key]" :placeholder="'请输入' + field.label" allow-clear style="width:160px" @input="update(field.key, $event.target.value)" @pressEnter="$emit('query')" />
-        <a-select v-else-if="field.kind === 'select'" :value="value[field.key]" :placeholder="'全部' + field.label" allow-clear show-search option-filter-prop="children" style="width:160px" @change="update(field.key, $event)">
+        <a-select v-else-if="field.kind === 'select'" :value="value[field.key]" :mode="Array.isArray(value[field.key]) ? 'multiple' : 'default'"
+          :placeholder="'全部' + field.label" allow-clear show-search option-filter-prop="children" style="width:160px" @change="update(field.key, $event)">
           <a-select-option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</a-select-option>
         </a-select>
         <a-date-picker v-else-if="field.kind === 'date'" :value="value[field.key]" placeholder="全部日期" style="width:150px" @change="update(field.key, $event)" />

@@ -12,7 +12,7 @@ Vue.use(Router)
 export const MODULE_MENUS = [
   { path: '/overview', title: '工作总览', icon: 'dashboard', component: Overview },
   { path: '/relations', title: '帮扶关系管理', icon: 'apartment', component: Relations },
-  { path: '/works', title: '部门重点工作', icon: 'profile', component: Works },
+  { path: '/works', title: '公司重点工作', icon: 'profile', component: Works },
   { path: '/works/mine', title: '我的重点工作', icon: 'form', child: true, component: MyWorks },
   { path: '/appeals', title: '基层诉求办理', icon: 'message', component: Appeals },
   { path: '/daily', title: '日报管理', icon: 'form', component: Daily },

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <business-list type="appeals" deep-link :action-width="175">
+    <business-list type="appeals" deep-link :action-width="156">
       <template #toolbar="{rows}">
         <a-button type="primary" icon="plus" @click="openForm()">新增基层诉求</a-button>
         <a-button icon="download" @click="exportAppealProgress(rows)">导出进展汇总</a-button>

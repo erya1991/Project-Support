@@ -3,7 +3,7 @@ import { buildSeed, SCHEMA_VERSION } from '../data/seed'
 import { migrateDb } from './migrate'
 import { nowStr, todayStr } from '../utils/date'
 import { nextCode } from '../utils/businessCodes'
-import { PROJECT, DEPARTMENT, staffOrg, targetOf, relationValues, effectiveRelations, personName, syncExecutions, changeWorkStatus, workRows, myWork } from '../utils/serviceData'
+import { PROJECT, DEPARTMENT, staffOrg, targetOf, relationValues, effectiveRelations, projectHelpers, personName, syncExecutions, changeWorkStatus, myWork } from '../utils/serviceData'
 import { dailyRows, attendanceRows, pendingReport, reportBody, dailyEligible, validateReport } from '../utils/reportData'
 import { submitAppeal, reviewAppeal, updateAppealProgress, requestClosure, submitSuggestion, replySuggestion, appealStats } from '../utils/workflow'
 
@@ -26,6 +26,10 @@ function relationChange (db, r, action, actor) {
 function duplicateRelation (db, relation) {
   return db.relations.some(r => r.id !== relation.id && r.status === '启用' && r.personId === relation.personId &&
     r.type === relation.type && r.targetId === relation.targetId)
+}
+
+function percentage (count, total) {
+  return total ? Math.round(count * 1000 / total) / 10 : null
 }
 
 const store = {
@@ -180,14 +184,27 @@ const store = {
   },
 
   overviewStats () {
-    const works = workRows(this.db).filter(w => w.status === '启用')
     const attendance = attendanceRows(this.db, state.day)
-    const due = attendance.filter(r => r.eligible).length
+    const attendanceDue = attendance.filter(r => r.eligible).length
     const attended = attendance.filter(r => r.attendance === '已到岗').length
-    return { attendance, serviceCount: attendance.length, attended, attendanceRate: due ? Math.round(attended / due * 1000) / 10 : null,
-      works: works.length, filled: works.reduce((total, w) => total + w.current.filled, 0),
-      executions: works.reduce((total, w) => total + w.current.total, 0), appeals: appealStats(this.db.appeals),
-      due, submitted: attendance.filter(r => r.reportStatus === '已提交').length }
+    const reports = dailyRows(this.db, state.day)
+    const due = reports.filter(r => r.eligible).length
+    const submitted = reports.filter(r => r.status === '已提交').length
+
+    const works = this.db.works.filter(w => w.status === '启用')
+    const projects = projectHelpers(effectiveRelations(this.db))
+    const executions = works.length * projects.size
+    const filled = works.reduce((total, work) => {
+      const records = work.executions.filter(e => projects.has(e.projectId) && e.firstAt)
+      return total + new Set(records.map(e => e.projectId)).size
+    }, 0)
+    const appeals = appealStats(this.db.appeals)
+    return {
+      attendance, serviceCount: attendance.length, attended, attendanceRate: percentage(attended, attendanceDue),
+      due, submitted, reportRate: percentage(submitted, due),
+      works: works.length, executions, filled, workRate: percentage(filled, executions),
+      appeals, closureRate: percentage(appeals.closed, appeals.total)
+    }
   },
   todoGroups () {
     const reports = dailyRows(this.db, state.day).filter(r => r.personId === state.actorId && r.status === '待填写')
